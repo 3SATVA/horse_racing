@@ -59,8 +59,12 @@ export const HORSE = {
   flightSeconds: 1.5,
   /** Catch-up boost after getting up from a stun. */
   boostSeconds: 4,
-  boostSpeedMul: 1.3,
-  boostAccelMul: 1.8,
+  boostSpeedMul: 1.6,
+  boostAccelMul: 2.6,
+  /** A fence hit only bumps when it's head-on: normal speed above this AND steeper than ~55°. Grazing keeps all speed. */
+  fenceHeadOnSpeed: 180,
+  fenceHeadOnCos: 0.82,
+  fenceBumpRestitution: 0.35,
   stunSeconds: 3,
   /** Grace period after getting up, so a horse can't be juggled. */
   recoverSeconds: 1.4,
@@ -77,6 +81,17 @@ export const CONTROL = {
   tapMs: 220,
   tapMovePx: 14,
 }
+
+/** Bots draw random, unique names from this pool every race. */
+export const HORSE_NAMES = [
+  'Thunder', 'Biscuit', 'Clover', 'Comet', 'Pepper', 'Duchess', 'Ziggy', 'Noodle',
+  'Pickles', 'Sir Gallops', 'Buttercup', 'Rocket', 'Waffles', 'Maple', 'Blaze', 'Pudding',
+  'Hay Fever', 'Mr. Trot', 'Sugarfoot', 'Turbo', 'Marshmallow', 'Jellybean', 'Nugget', 'Dynamo',
+  'Sparky', 'Hoofhearted', 'Cinnamon', 'Wildfire', 'Muffin', 'Captain Neigh', 'Pebbles', 'Gizmo',
+  'Stardust', 'Taco', 'Bramble', 'Zoom Zoom', 'Mango', 'Lady Luck', 'Pumpernickel', 'Tornado',
+  'Sprinkles', 'Bandit', 'Fudge', 'Rascal', 'Popcorn', 'Moonpie', 'Dash Rendar', 'Bonbon',
+  'Ruckus', 'Cupcake', 'Galaxy', 'Toffee',
+]
 
 export const HORSE_COLORS = [
   { name: 'You', coat: '#8b5a2b', mane: '#2a1a0e', silk: '#e8343a' },

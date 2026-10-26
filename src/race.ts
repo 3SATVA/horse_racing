@@ -1,6 +1,6 @@
 import { setupBot, thinkBot } from './ai'
 import type { Audio } from './audio'
-import { HORSE, HORSE_COLORS, RACE } from './config'
+import { HORSE, HORSE_COLORS, HORSE_NAMES, RACE } from './config'
 import type { Effects } from './effects'
 import { makeHorse, rollTopSpeed, updateTopSpeed, type Horse } from './horse'
 import type { Input } from './input'
@@ -20,6 +20,8 @@ export class Race {
   time = 0
   laps = RACE.laps
   finishCount = 0
+  /** First horse over the line on the final lap. The race ends the moment this is set. */
+  winner: Horse | null = null
   playerFinishedAt = -1
   lastInput: 'keys' | 'drag' = 'keys'
   private lastDragId = 0
@@ -31,7 +33,10 @@ export class Race {
     this.laps = laps
     this.track = generateTrack()
     const bots = rivals >= RACE.minBots && rivals <= RACE.maxBots ? rivals : randInt(RACE.minBots, RACE.maxBots)
-    this.horses = HORSE_COLORS.slice(0, bots + 1).map((c, i) => makeHorse(i, c.name, c, i === 0))
+    // Random, unique bot names each race; the player is always 'You'.
+    const pool = [...HORSE_NAMES]
+    for (let i = pool.length - 1; i > 0; i--) { const j = randInt(0, i); [pool[i], pool[j]] = [pool[j], pool[i]] }
+    this.horses = HORSE_COLORS.slice(0, bots + 1).map((c, i) => makeHorse(i, i === 0 ? 'You' : pool[i - 1], c, i === 0))
     this.player = this.horses[0]
     this.horses.forEach((h, i) => {
       if (i > 0) setupBot(h, i - 1)
@@ -170,11 +175,14 @@ export class Race {
       const prevLap = h.lap
       h.lap = clamp(Math.floor(h.progress / L) + 1, 1, this.laps)
       if (h.isPlayer && h.lap > prevLap && !h.finished && this.phase === 'racing') this.toast(h.lap === this.laps ? 'FINAL LAP!' : `LAP ${h.lap}`)
-      if (!h.finished && this.phase === 'racing' && h.progress >= goal) {
+      if (!this.winner && this.phase === 'racing' && h.progress >= goal) {
+        // Race over as soon as the first horse crosses: nobody else "finishes".
+        this.winner = h
         h.finished = true
         h.finishTime = this.time
         h.finishPlace = ++this.finishCount
-        if (h.isPlayer) { this.toast(h.finishPlace === 1 ? 'YOU WIN!' : `FINISHED ${ordinal(h.finishPlace)}`, 3); this.audio.fanfare(h.finishPlace === 1) }
+        this.toast(h.isPlayer ? 'YOU WIN!' : `${h.name} WINS!`, 3)
+        this.audio.fanfare(h.isPlayer)
       }
       if (h.isPlayer) {
         const facingBack = dot(fromAngle(h.heading), loc.tan) < -0.3 && h.fwdSpeed > 60

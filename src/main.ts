@@ -1,8 +1,8 @@
 import { Audio } from './audio'
-import { RACE } from './config'
+import { HORSE, RACE } from './config'
 import { Effects } from './effects'
 import { Input } from './input'
-import { fromAngle } from './math'
+import { fromAngle, wrapAngle } from './math'
 import { Race } from './race'
 import { Renderer } from './render'
 import { sample } from './track'
@@ -91,9 +91,10 @@ function frame(now: number) {
       renderer.cam.x = (b.minX + b.maxX) / 2; renderer.cam.y = (b.minY + b.maxY) / 2
       renderer.cam.zoom = Math.min(window.innerWidth / (b.maxX - b.minX + 200), window.innerHeight / (b.maxY - b.minY + 200))
     }
-    if (race.player.finished) {
+    if (race.winner) {
       doneTimer += dt
-      if (doneTimer > RACE.finishLinger) { race.phase = 'done'; ui.showResults(race); screen = 'results'; input.enabled = false }
+      // You win: a short victory lap. A bot wins: straight to the "You lose" screen.
+      if (!race.winner.isPlayer || doneTimer > RACE.finishLinger) { race.phase = 'done'; ui.showResults(race); screen = 'results'; input.enabled = false }
     }
     ui.updateHud(race)
   } else if (screen === 'menu') {
@@ -124,6 +125,7 @@ window.__horse = {
       phase: r?.phase,
       time: r?.time,
       trackLength: r?.track.length,
+      winner: r?.winner ? r.winner.id : -1,
       trackKind: r?.track.kind,
       trackSolidity: r?.track.solidity,
       trackHalfWidth: r?.track.halfWidth,
@@ -184,9 +186,9 @@ window.__horse = {
       })
     },
     /** Put the player just before the line on the final lap. */
-    nearFinish: (dist = 260) => {
+    nearFinish: (dist = 260, id = 0) => {
       if (!race) return
-      const p = race.player
+      const p = race.horses[id]
       const L = race.track.length
       const s = L - dist
       const at = sample(race.track, s)
@@ -205,6 +207,19 @@ window.__horse = {
     overview: (on = true) => { overview = on },
     freezeBots: (on: boolean) => { if (race) race.horses.forEach((h) => { if (!h.isPlayer) h.frozen = on }) },
     /** Fire horse `id` sideways into the fence at top speed (fence hits must not explode). */
+    /** Point a horse into the fence at a shallow angle (degrees) at full speed: a graze/slide. */
+    fenceGraze: (id = 0, deg = 25) => {
+      if (!race) return
+      const h = race.horses[id]
+      const at = sample(race.track, h.lastS)
+      const lim = race.track.halfWidth - HORSE.radius - 4
+      h.pos = { x: at.p.x + at.nrm.x * lim, y: at.p.y + at.nrm.y * lim }; h.trackIdx = at.i
+      const tanA = Math.atan2(at.tan.y, at.tan.x), nrmA = Math.atan2(at.nrm.y, at.nrm.x)
+      const into = wrapAngle(nrmA - tanA) > 0 ? 1 : -1
+      h.heading = tanA + into * deg * Math.PI / 180
+      h.vel = fromAngle(h.heading, h.topSpeed); h.fwdSpeed = h.topSpeed
+      h.state = 'normal'; h.recoverTimer = 0; h.boostTimer = 0
+    },
     fenceSlam: (id = 0) => {
       if (!race) return
       const h = race.horses[id]

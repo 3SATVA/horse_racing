@@ -137,9 +137,24 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
     h.pos.x -= n.x * over; h.pos.y -= n.y * over
     const vn = dot(h.vel, n)
     if (vn > 0) {
-      h.vel.x -= n.x * vn * 1.3; h.vel.y -= n.y * vn * 1.3
-      h.vel.x *= 0.9; h.vel.y *= 0.9 // fences only bump and slow you, never explode
-      if (vn > 90) ev.push({ type: 'scrape', x: h.pos.x + n.x * r, y: h.pos.y + n.y * r, horse: h.id })
+      const spd = Math.hypot(h.vel.x, h.vel.y)
+      // Fences never explode. Grazing / hugging the rail keeps every bit of speed: the
+      // velocity is simply redirected along the fence. Only a real head-on hit bumps.
+      if (vn > HORSE.fenceHeadOnSpeed && vn > spd * HORSE.fenceHeadOnCos) {
+        const tx = h.vel.x - n.x * vn, ty = h.vel.y - n.y * vn
+        const e = HORSE.fenceBumpRestitution
+        h.vel.x = tx * 0.85 - n.x * vn * e; h.vel.y = ty * 0.85 - n.y * vn * e
+        ev.push({ type: 'scrape', x: h.pos.x + n.x * r, y: h.pos.y + n.y * r, horse: h.id })
+      } else {
+        let t = { x: -n.y, y: n.x }
+        if (dot(t, h.vel) < 0) t = { x: -t.x, y: -t.y }
+        h.vel = { x: t.x * spd, y: t.y * spd }
+        // Point the horse along the rail too, so its forward speed isn't lost next step.
+        const back = h.fwdSpeed < 0
+        const want = Math.atan2(back ? -t.y : t.y, back ? -t.x : t.x)
+        if (Math.abs(wrapAngle(want - h.heading)) < 1.2) h.heading = want
+        if (vn > 120 && Math.random() < 0.25) ev.push({ type: 'scrape', x: h.pos.x + n.x * r, y: h.pos.y + n.y * r, horse: h.id })
+      }
     }
   }
   h.fwdSpeed = dot(h.vel, fromAngle(h.heading))

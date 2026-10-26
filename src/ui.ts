@@ -78,12 +78,15 @@ export class UI {
     list.innerHTML = ''
     const order = race.standings()
     const me = order.indexOf(race.player) + 1
-    $('resultTitle').textContent = me === 1 ? 'You won! 🏆' : `You finished ${ordinal(me)}`
+    const won = race.winner === race.player
+    $('resultTitle').textContent = won ? 'You won! 🏆' : 'You lose!'
+    $('resultSub').textContent = won ? 'First across the line!' : `${race.winner ? race.winner.name : 'A rival'} crossed the line first. You were ${ordinal(me)} of ${order.length}.`
+    $('screenResults').classList.toggle('lost', !won)
     order.forEach((h, i) => {
       const li = document.createElement('li')
       if (h.isPlayer) li.className = 'me'
       const remaining = Math.max(0, race.laps * race.L - h.progress)
-      const t = h.finished ? fmtTime(h.finishTime) : `${Math.round((1 - remaining / (race.laps * race.L)) * 100)}% done`
+      const t = h.finished ? fmtTime(h.finishTime) : `${Math.max(0, Math.min(99, Math.round((1 - remaining / (race.laps * race.L)) * 100)))}% done`
       li.innerHTML = `<span class="place">${ordinal(i + 1)}</span><span class="chip" style="background:${h.colors.silk}"></span><span>${h.isPlayer ? 'You' : h.name}</span><span class="t">${t}</span>`
       list.appendChild(li)
     })
