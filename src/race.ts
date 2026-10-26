@@ -131,7 +131,7 @@ export class Race {
     for (const h of this.horses) {
       if (h.isPlayer) continue
       if (frozen) { h.ctrl.mode = 'coast'; continue }
-      thinkBot(h, this.horses, this.track, dt, this.player, this.time > RACE.startGrace)
+      thinkBot(h, this.horses, this.track, dt, this.player, this.time > RACE.startGrace, this.time > RACE.huntDelay)
     }
 
     const events: PhysEvent[] = []
@@ -198,8 +198,11 @@ export class Race {
       case 'launch': {
         this.audio.whoosh()
         const v = this.horses[e.victim], a = this.horses[e.attacker]
-        if (a.isPlayer) this.toast(`BOOM! You blew up ${v.name}!`)
-        else if (v.isPlayer) this.toast(`${a.name} blew you up!`)
+        if (e.kind === 'headon' && (a.isPlayer || v.isPlayer)) {
+          if (v.isPlayer) this.toast(`HEAD-ON! You and ${a.name} both blew up!`)
+          else if (a.state !== 'flying') this.toast(`HEAD-ON! You blew up ${v.name}!`)
+        } else if (a.isPlayer) this.toast(e.kind === 'rear' ? `BOOM! Rear-ended ${v.name}!` : `BOOM! You blew up ${v.name}!`)
+        else if (v.isPlayer) this.toast(e.kind === 'rear' ? `${a.name} rammed you from behind!` : `${a.name} blew you up!`)
         break
       }
       case 'explode': {

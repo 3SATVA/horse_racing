@@ -65,7 +65,11 @@ export interface Horse {
   // Animation
   gait: number
   // AI scratch space
-  ai: { lane: number; laneTimer: number; stuckTimer: number; backupTimer: number; aggression: number; skill: number; targetId: number; ramCooldown: number }
+  ai: { lane: number; laneTimer: number; stuckTimer: number; backupTimer: number; aggression: number; skill: number; targetId: number; ramCooldown: number; hunting: number; huntCooldown: number; huntsStarted: number }
+  /** Speed bonus (fraction) a hunting bot may use to close in. */
+  surge: number
+  timesExploded: number
+  kills: number
 }
 
 export function makeHorse(id: number, name: string, colors: Horse['colors'], isPlayer: boolean): Horse {
@@ -79,7 +83,8 @@ export function makeHorse(id: number, name: string, colors: Horse['colors'], isP
     reverseTimer: 0,
     trackIdx: -1, lastS: 0, progress: 0, lap: 1, finished: false, finishTime: 0, finishPlace: 0, wrongWayTimer: 0,
     gait: Math.random() * 10,
-    ai: { lane: 0, laneTimer: 0, stuckTimer: 0, backupTimer: 0, aggression: 0, skill: 1, targetId: -1, ramCooldown: 0 },
+    ai: { lane: 0, laneTimer: 0, stuckTimer: 0, backupTimer: 0, aggression: 0, skill: 1, targetId: -1, ramCooldown: 0, hunting: 0, huntCooldown: rand(4, 10), huntsStarted: 0 },
+    surge: 0, timesExploded: 0, kills: 0,
   }
 }
 
@@ -99,4 +104,4 @@ export function updateTopSpeed(h: Horse, dt: number) {
   h.topSpeed = h.topSpeed < h.topTarget ? Math.min(h.topTarget, h.topSpeed + step) : Math.max(h.topTarget, h.topSpeed - step)
 }
 
-export const boostMul = (h: Horse) => (h.boostTimer > 0 ? HORSE.boostSpeedMul : 1)
+export const boostMul = (h: Horse) => (h.boostTimer > 0 ? HORSE.boostSpeedMul : 1) * (1 + h.surge)

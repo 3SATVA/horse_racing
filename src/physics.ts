@@ -1,21 +1,55 @@
-import { HORSE } from './config'
+import { BOT, HORSE } from './config'
 import { boostMul, canBeHit, type Horse } from './horse'
 import { approach, clamp, dot, fromAngle, wrapAngle } from './math'
 import { locate, type Track } from './track'
 
 export type PhysEvent =
-  | { type: 'launch'; x: number; y: number; victim: number; attacker: number }
+  | { type: 'launch'; x: number; y: number; victim: number; attacker: number; kind: HitKind }
   | { type: 'explode'; x: number; y: number; victim: number }
   | { type: 'bump'; x: number; y: number; strength: number; a: number; b: number }
   | { type: 'scrape'; x: number; y: number; horse: number }
   | { type: 'bounce'; x: number; y: number; horse: number; strength: number }
   | { type: 'boost'; horse: number }
 
-/** Can `h` launch something in direction `dir` (unit vector from h to the other horse)? */
-export function isRamming(h: Horse, dir: { x: number; y: number }): boolean {
-  if (h.state !== 'normal') return false
-  if (h.fwdSpeed < HORSE.ramThreshold * h.topSpeed) return false
-  return dot(fromAngle(h.heading), dir) > 0.35
+export type HitKind = 'rear' | 'headon' | 'side'
+
+/**
+ * Collision rules (a = one horse, b = the other, n = unit vector a -> b):
+ *  - a "points at" b when a's nose is within ~50° of the line to b (dot(fwdA, n) > HORSE.noseCos).
+ *  - REAR: a points at b, the two face roughly the same way (within ~65°) and a is behind b
+ *    (contact on b's rear half). b ALWAYS explodes, at any speed, as long as they close at
+ *    >= HORSE.rearMinClosing (so a parked touch does nothing).
+ *  - HEAD-ON: both point at each other with headings roughly opposite (> ~120° apart). BOTH explode
+ *    (each one that can be hit), given a small closing speed.
+ *  - SIDE / T-bone: a's nose hits b's flank (a points at b, headings neither aligned nor opposite).
+ *    b explodes only if a is moving at >= HORSE.sideRamFrac of its top speed and closing fast.
+ *  - Anything else (shoulder rubs, flank vs flank, backing into someone) is a normal shove.
+ * A horse that is flying, stunned or in its post-stun invulnerable window can't be exploded,
+ * and only a horse in the normal state can be the attacker.
+ */
+export function classifyHit(a: Horse, b: Horse, n: { x: number; y: number }): { aHitsB: HitKind | null; bHitsA: HitKind | null } {
+  const fa = fromAngle(a.heading), fb = fromAngle(b.heading)
+  const closing = (a.vel.x - b.vel.x) * n.x + (a.vel.y - b.vel.y) * n.y
+  const aNose = a.state === 'normal' && dot(fa, n) > HORSE.noseCos
+  const bNose = b.state === 'normal' && -dot(fb, n) > HORSE.noseCos
+  const align = dot(fa, fb)
+  if (aNose && bNose && align < HORSE.headOnCos) {
+    if (closing < HORSE.rearMinClosing) return { aHitsB: null, bHitsA: null }
+    return { aHitsB: 'headon', bHitsA: 'headon' }
+  }
+  const one = (atk: Horse, nose: boolean, fAtk: { x: number; y: number }, fTgt: { x: number; y: number }, dir: { x: number; y: number }): HitKind | null => {
+    if (!nose || closing < HORSE.rearMinClosing) return null
+    const al = dot(fAtk, fTgt)
+    // Contact on the target's rear half: attacker is behind it (target heading points away from attacker).
+    if (al > HORSE.rearAlignCos && dot(fTgt, dir) > 0) return 'rear'
+    if (al > HORSE.rearAlignCos) return null // nose-to-nose-ish from in front while going the same way: just a shove
+    if (atk.fwdSpeed >= HORSE.sideRamFrac * atk.topSpeed && closing > HORSE.sideMinClosing) return 'side'
+    return null
+  }
+  return {
+    aHitsB: one(a, aNose, fa, fb, n),
+    bHitsA: one(b, bNose, fb, fa, { x: -n.x, y: -n.y }),
+  }
 }
 
 function applyControl(h: Horse, dt: number) {
@@ -162,8 +196,11 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
   return ev
 }
 
-function launch(victim: Horse, attacker: Horse, tr: Track): PhysEvent[] {
+function launch(victim: Horse, attacker: Horse, tr: Track, kind: HitKind, slowAttacker = true): PhysEvent[] {
   attacker.ai.ramCooldown = 8 // bots don't go hunting again straight away
+  if (attacker.ai.hunting > 0) { attacker.ai.hunting = 0; attacker.ai.huntCooldown = BOT.huntRestMin + Math.random() * (BOT.huntRestMax - BOT.huntRestMin) }
+  victim.timesExploded++
+  attacker.kills++
   const loc = locate(tr, victim.pos, victim.trackIdx)
   let side = Math.sign(loc.lat)
   if (Math.abs(loc.lat) < 6) {
@@ -182,17 +219,16 @@ function launch(victim: Horse, attacker: Horse, tr: Track): PhysEvent[] {
   victim.boostTimer = 0
   victim.bounces = 0
   victim.spin = (Math.random() < 0.5 ? -1 : 1) * (10 + Math.random() * 6)
-  attacker.vel.x *= 0.72; attacker.vel.y *= 0.72
-  attacker.fwdSpeed *= 0.72
+  if (slowAttacker) { attacker.vel.x *= 0.72; attacker.vel.y *= 0.72; attacker.fwdSpeed *= 0.72 }
   // The explosion happens right here, at the moment of impact.
   const ix = (victim.pos.x + attacker.pos.x) / 2, iy = (victim.pos.y + attacker.pos.y) / 2
   return [
-    { type: 'launch', x: victim.pos.x, y: victim.pos.y, victim: victim.id, attacker: attacker.id },
+    { type: 'launch', x: victim.pos.x, y: victim.pos.y, victim: victim.id, attacker: attacker.id, kind },
     { type: 'explode', x: ix, y: iy, victim: victim.id },
   ]
 }
 
-/** Horse-vs-horse contacts: normal bumps, or a top-speed ram that launches the other horse. */
+/** Horse-vs-horse contacts: normal shoves, or a rear / head-on / side hit (see classifyHit) that launches. */
 /** `botRams` false = bots can't blow each other up (start-of-race grace, avoids a grid pile-up). */
 export function collide(horses: Horse[], tr: Track, botRams = true): PhysEvent[] {
   const ev: PhysEvent[] = []
@@ -206,10 +242,20 @@ export function collide(horses: Horse[], tr: Track, botRams = true): PhysEvent[]
       if (d >= R2 || d === 0) continue
       const n = { x: dx / d, y: dy / d }
       const armed = botRams || a.isPlayer || b.isPlayer
-      const aRams = armed && isRamming(a, n) && canBeHit(b)
-      const bRams = armed && isRamming(b, { x: -n.x, y: -n.y }) && canBeHit(a)
-      if (aRams && (!bRams || a.fwdSpeed >= b.fwdSpeed)) { ev.push(...launch(b, a, tr)); continue }
-      if (bRams) { ev.push(...launch(a, b, tr)); continue }
+      if (armed) {
+        const hit = classifyHit(a, b, n)
+        const aOk = hit.aHitsB !== null && canBeHit(b)
+        const bOk = hit.bHitsA !== null && canBeHit(a)
+        if (hit.aHitsB === 'headon' && (aOk || bOk)) {
+          // Both explode (whoever can be hit). launch() leaves the victim's fwdSpeed alone and we skip
+          // slowing an attacker that is itself about to be launched, so each carry uses pre-impact speed.
+          if (aOk) ev.push(...launch(b, a, tr, 'headon', !bOk))
+          if (bOk) ev.push(...launch(a, b, tr, 'headon', !aOk))
+          continue
+        }
+        if (aOk && (!bOk || a.fwdSpeed >= b.fwdSpeed)) { ev.push(...launch(b, a, tr, hit.aHitsB!)); continue }
+        if (bOk) { ev.push(...launch(a, b, tr, hit.bHitsA!)); continue }
+      }
 
       // Ordinary shove. A horse lying stunned acts like a wall.
       const overlap = R2 - d

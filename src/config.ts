@@ -5,6 +5,8 @@ export const RACE = {
   /** Rival count is random each race, between these (inclusive). */
   /** Seconds after GO during which bots can't blow each other up (no grid pile-ups). */
   startGrace: 3,
+  /** Bots may start hunting the player this many seconds after GO. */
+  huntDelay: 1.5,
   minBots: 1,
   maxBots: 7,
   countdownSeconds: 3,
@@ -49,8 +51,16 @@ export const HORSE = {
   /** Seconds between top speed changes (random per horse, per change). */
   topSpeedMinInterval: 2,
   topSpeedMaxInterval: 6,
-  /** Speed (fraction of the horse's CURRENT top speed) needed to launch another. */
-  ramThreshold: 0.88,
+  /** Collision rules (see classifyHit in physics.ts). Nose "points at" the other horse within ~50°. */
+  noseCos: 0.64,
+  /** Headings within ~65° count as "same way" (rear hit); more than ~120° apart counts as head-on. */
+  rearAlignCos: 0.42,
+  headOnCos: -0.5,
+  /** Rear and head-on hits explode at any speed once closing at least this fast. */
+  rearMinClosing: 35,
+  /** Side / T-bone: attacker needs this fraction of its top speed and this closing speed. */
+  sideRamFrac: 0.6,
+  sideMinClosing: 160,
   launchSpeed: 720,
   /** Fence bounce while launched: speed kept along / off the fence. */
   bounceRestitution: 0.62,
@@ -59,8 +69,8 @@ export const HORSE = {
   flightSeconds: 1.5,
   /** Catch-up boost after getting up from a stun. */
   boostSeconds: 4,
-  boostSpeedMul: 1.6,
-  boostAccelMul: 2.6,
+  boostSpeedMul: 1.9,
+  boostAccelMul: 3.4,
   /** A fence hit only bumps when it's head-on: normal speed above this AND steeper than ~55°. Grazing keeps all speed. */
   fenceHeadOnSpeed: 180,
   fenceHeadOnCos: 0.82,
@@ -83,6 +93,25 @@ export const CONTROL = {
 }
 
 /** Bots draw random, unique names from this pool every race. */
+/** Bot behaviour. One bot at a time may hunt the player: chase, line up behind, ram from behind. */
+export const BOT = {
+  huntChancePerSec: 0.2,
+  huntChanceAggro: 0.35,
+  /** Seconds a hunt lasts at most. */
+  huntMin: 6,
+  huntMax: 12,
+  /** A hunting bot may run this much over its top speed so it can actually catch you. */
+  huntSurge: 0.1,
+  /** A bot up to this far ahead of the player may also start a hunt (it drops back first). */
+  huntAheadMax: 500,
+  /** After a hunt (hit or miss) this bot rests, and every other bot waits huntSpacing. */
+  huntRestMin: 8,
+  huntRestMax: 14,
+  huntSpacing: 5,
+  /** Bots only try to ram other bots when aggression is above this. */
+  botRamAggro: 0.6,
+}
+
 export const HORSE_NAMES = [
   'Thunder', 'Biscuit', 'Clover', 'Comet', 'Pepper', 'Duchess', 'Ziggy', 'Noodle',
   'Pickles', 'Sir Gallops', 'Buttercup', 'Rocket', 'Waffles', 'Maple', 'Blaze', 'Pudding',

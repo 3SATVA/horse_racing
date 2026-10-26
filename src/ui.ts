@@ -79,9 +79,18 @@ export class UI {
     const order = race.standings()
     const me = order.indexOf(race.player) + 1
     const won = race.winner === race.player
-    $('resultTitle').textContent = won ? 'You won! 🏆' : 'You lose!'
-    $('resultSub').textContent = won ? 'First across the line!' : `${race.winner ? race.winner.name : 'A rival'} crossed the line first. You were ${ordinal(me)} of ${order.length}.`
-    $('screenResults').classList.toggle('lost', !won)
+    const last = !won && me === order.length
+    const who = race.winner ? race.winner.name : 'A rival'
+    // Only last place is a loss; any other spot shows your placement.
+    $('resultTitle').textContent = won ? 'You won! 🏆' : last ? 'You lose!' : `You placed ${ordinal(me)}!`
+    $('resultSub').textContent = won
+      ? 'First across the line!'
+      : last
+        ? `${who} crossed the line first and you were last of ${order.length}.`
+        : `${who} crossed the line first. You finished ${ordinal(me)} of ${order.length}.`
+    const scr = $('screenResults')
+    scr.classList.toggle('lost', last)
+    scr.classList.toggle('placed', !won && !last)
     order.forEach((h, i) => {
       const li = document.createElement('li')
       if (h.isPlayer) li.className = 'me'

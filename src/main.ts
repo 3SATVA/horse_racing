@@ -141,6 +141,7 @@ window.__horse = {
         speed: h.fwdSpeed, state: h.state, stun: h.stunTimer, lap: h.lap, progress: h.progress,
         finished: h.finished, place: r.placeOf(h), mode: h.ctrl.mode,
         top: h.topSpeed, topTarget: h.topTarget, boost: h.boostTimer, bounces: h.bounces, z: h.z,
+        exploded: h.timesExploded, kills: h.kills, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
       })),
     }
   },
@@ -151,7 +152,7 @@ window.__horse = {
      * Put bot `id` right behind the target horse at top speed, aimed at it,
      * so it rams on the next frames. target defaults to the player.
      */
-    setupRam: (attackerId: number, victimId = 0) => {
+    setupRam: (attackerId: number, victimId = 0, speed = -1, gap = 40) => {
       if (!race) return
       const a = race.horses[attackerId], v = race.horses[victimId]
       for (const h of [a, v]) { h.state = 'normal'; h.recoverTimer = 0; h.z = 0; h.boostTimer = 0 }
@@ -160,13 +161,27 @@ window.__horse = {
       v.heading = Math.atan2(at.tan.y, at.tan.x)
       v.vel = { x: 0, y: 0 }
       v.trackIdx = at.i
-      const back = sample(race.track, v.lastS + 60 - 40)
+      const back = sample(race.track, v.lastS + 60 - gap)
       a.pos = { ...back.p }
       a.trackIdx = back.i
       a.heading = v.heading
-      a.vel = fromAngle(a.heading, a.topSpeed)
-      a.fwdSpeed = a.topSpeed
+      const sp = speed < 0 ? a.topSpeed : speed
+      a.vel = fromAngle(a.heading, sp)
+      a.fwdSpeed = sp
       a.ai.backupTimer = 0
+    },
+    /** Put horses a and b nose to nose on the centre line, driving at each other at `speed`. */
+    setupHeadOn: (aId: number, bId: number, speed = 200, gap = 70) => {
+      if (!race) return
+      const a = race.horses[aId], b = race.horses[bId]
+      for (const h of [a, b]) { h.state = 'normal'; h.recoverTimer = 0; h.z = 0; h.boostTimer = 0; h.ai.backupTimer = 0 }
+      const at = sample(race.track, a.lastS + 80)
+      const tanA = Math.atan2(at.tan.y, at.tan.x)
+      a.pos = { x: at.p.x - at.tan.x * gap / 2, y: at.p.y - at.tan.y * gap / 2 }; a.trackIdx = at.i
+      b.pos = { x: at.p.x + at.tan.x * gap / 2, y: at.p.y + at.tan.y * gap / 2 }; b.trackIdx = at.i
+      a.heading = tanA; b.heading = tanA + Math.PI
+      a.vel = fromAngle(a.heading, speed); a.fwdSpeed = speed
+      b.vel = fromAngle(b.heading, speed); b.fwdSpeed = speed
     },
     /** Move every horse far away except the player (clear road for tests). */
     clearRoad: () => {

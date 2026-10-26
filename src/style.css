@@ -96,3 +96,6 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 5px; border-radius: 5
 #screenResults.lost #resultTitle { color: #ff6b5e; }
 #screenResults.lost .panel { border-color: rgba(255, 107, 94, 0.6); }
 @media (max-height: 520px) { .result-sub { font-size: 12px; margin: -6px 0 0; } }
+/* v4: a mid-pack finish is a placement, not a loss */
+#screenResults.placed #resultTitle { color: #ffd84a; }
+#screenResults.placed .panel { border-color: rgba(255, 216, 74, 0.55); }
