@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1d4d24" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Derby Dash" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="Derby Dash: a top-down horse race. Gallop, steer, and ram rivals into the fence." />
+    <title>Derby Dash</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app" data-mode="menu">
+      <canvas id="view" aria-label="Race track"></canvas>
+
+      <div id="hud" hidden>
+        <div class="hud-left">
+          <div class="hud-card"><span class="k">LAP</span> <span id="hudLap">1/3</span></div>
+          <div class="hud-card"><span class="k">POS</span> <span id="hudPos">4th</span><span class="of" id="hudOf">/4</span></div>
+        </div>
+        <div class="hud-card timer" id="hudTime">0:00.0</div>
+        <div class="hud-actions">
+          <button id="btnMute" class="icon-btn" type="button" aria-label="Mute">🔊</button>
+          <button id="btnPause" class="icon-btn" type="button" aria-label="Pause">❚❚</button>
+        </div>
+        <div class="speedo" aria-hidden="true">
+          <div class="speedo-bar"><div id="speedFill"></div></div>
+          <div id="speedLabel">0</div>
+        </div>
+        <div id="status" class="status" hidden></div>
+      </div>
+
+      <div id="countdown" class="countdown" hidden>3</div>
+      <div id="toast" class="toast" hidden></div>
+
+      <section id="screenMenu" class="screen">
+        <div class="panel">
+          <div class="logo" aria-hidden="true">🏇</div>
+          <h1>Derby Dash</h1>
+          <p class="lede">Race three rivals around a brand-new track every time. Hit top speed and ram a horse to send it flying into the fence.</p>
+          <button id="btnPlay" class="btn play" type="button">PLAY</button>
+          <div class="controls">
+            <div>
+              <h3>Keyboard</h3>
+              <p><kbd>W</kbd> gallop &nbsp;<kbd>S</kbd> brake / back up<br /><kbd>A</kbd> <kbd>D</kbd> steer</p>
+            </div>
+            <div>
+              <h3>Drag (mouse or touch)</h3>
+              <p>Press and drag anywhere. The arrow is where you go, a longer drag is faster. Let go to stop. Tap, right-click or a second finger to back up.</p>
+            </div>
+          </div>
+          <p class="rotate-tip">Tip: turn your phone sideways for a wider view.</p>
+        </div>
+      </section>
+
+      <section id="screenPause" class="screen dim" hidden>
+        <div class="panel">
+          <h2>Paused</h2>
+          <button id="btnResume" class="btn" type="button">Resume</button>
+          <button id="btnRestart" class="btn secondary" type="button">Restart race</button>
+          <button id="btnPauseMenu" class="btn secondary" type="button">Main menu</button>
+        </div>
+      </section>
+
+      <section id="screenResults" class="screen dim" hidden>
+        <div class="panel">
+          <p class="eyebrow">Race over</p>
+          <h2 id="resultTitle">You finished 1st!</h2>
+          <ol id="resultList" class="results"></ol>
+          <button id="btnAgain" class="btn" type="button">Play Again</button>
+          <button id="btnMenu" class="btn secondary" type="button">Main Menu</button>
+        </div>
+      </section>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
