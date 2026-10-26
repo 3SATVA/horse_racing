@@ -36,11 +36,17 @@ export class UI {
     $('hudPos').textContent = ordinal(race.placeOf(p))
     $('hudOf').textContent = `/${race.horses.length}`
     $('hudTime').textContent = fmtTime(race.time)
-    const frac = Math.min(1, Math.abs(p.fwdSpeed) / HORSE.topSpeed)
+    const frac = Math.min(1, Math.abs(p.fwdSpeed) / p.topSpeed)
     const fill = $('speedFill')
     fill.style.width = `${frac * 100}%`
     fill.classList.toggle('reverse', p.fwdSpeed < -2)
-    $('speedLabel').textContent = p.fwdSpeed < -2 ? 'REV' : frac > 0.97 ? 'TOP!' : `${Math.round(frac * 100)}%`
+    fill.classList.toggle('boost', p.boostTimer > 0)
+    $('speedLabel').textContent = p.fwdSpeed < -2 ? 'REV' : p.boostTimer > 0 && p.fwdSpeed > p.topSpeed ? 'BOOST!' : frac > 0.97 ? 'TOP!' : `${Math.round(frac * 100)}%`
+    // Today's top speed vs. the average horse (it wanders for everyone).
+    const pct = Math.round((p.topTarget / HORSE.topSpeed - 1) * 100)
+    const top = $('speedTop')
+    top.textContent = `TOP ${pct > 0 ? '▲ +' : pct < 0 ? '▼ ' : '● '}${pct}%`
+    top.className = 'speed-top ' + (pct > 0 ? 'up' : pct < 0 ? 'down' : '')
 
     // Countdown.
     if (race.phase === 'countdown') {
@@ -53,8 +59,9 @@ export class UI {
 
     // Status banner.
     let text = '', cls = ''
-    if (p.state === 'flying') { text = 'LAUNCHED!'; cls = 'stun' }
-    else if (p.state === 'stunned') { text = `STUNNED ${p.stunTimer.toFixed(1)}s`; cls = 'stun' }
+    if (p.state === 'flying') { text = 'KABOOM!'; cls = 'stun' }
+    else if (p.state === 'stunned') { text = `STUNNED ${p.stunTimer.toFixed(1)}s · boost next!`; cls = 'stun' }
+    else if (p.boostTimer > 0) { text = `⚡ CATCH-UP BOOST ${p.boostTimer.toFixed(1)}s`; cls = 'boost' }
     else if (p.fwdSpeed < -6) { text = 'REVERSING'; cls = 'rev' }
     else if (p.wrongWayTimer > 0.8) { text = 'WRONG WAY'; cls = '' }
     this.status.hidden = !text

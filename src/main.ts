@@ -1,5 +1,5 @@
 import { Audio } from './audio'
-import { HORSE, RACE } from './config'
+import { RACE } from './config'
 import { Effects } from './effects'
 import { Input } from './input'
 import { fromAngle } from './math'
@@ -21,6 +21,7 @@ let screen: Screen = 'menu'
 let race: Race | null = null
 let menuRace = new Race(fx, audio) // drives the animated backdrop behind the menu
 let doneTimer = 0
+let overview = false // debug: show the whole track
 
 input.onGesture = () => audio.unlock()
 audio.setMuted(localStorage.getItem('derby.muted') === '1')
@@ -37,7 +38,8 @@ function startRace() {
   audio.unlock()
   fx.clear()
   const laps = Number(params.get('laps')) || RACE.laps
-  race = new Race(fx, audio, laps)
+  const rivals = params.has('rivals') ? Number(params.get('rivals')) : -1
+  race = new Race(fx, audio, laps, rivals)
   renderer.snapCamera(race.player)
   doneTimer = 0
   setScreen('race')
@@ -84,6 +86,11 @@ function frame(now: number) {
     for (let i = 0; i < steps; i++) race.update(dt / steps, input)
     fx.update(dt)
     renderer.updateCamera(race.player, dt)
+    if (overview) {
+      const b = race.track.bounds
+      renderer.cam.x = (b.minX + b.maxX) / 2; renderer.cam.y = (b.minY + b.maxY) / 2
+      renderer.cam.zoom = Math.min(window.innerWidth / (b.maxX - b.minX + 200), window.innerHeight / (b.maxY - b.minY + 200))
+    }
     if (race.player.finished) {
       doneTimer += dt
       if (doneTimer > RACE.finishLinger) { race.phase = 'done'; ui.showResults(race); screen = 'results'; input.enabled = false }
@@ -117,6 +124,10 @@ window.__horse = {
       phase: r?.phase,
       time: r?.time,
       trackLength: r?.track.length,
+      trackKind: r?.track.kind,
+      trackSolidity: r?.track.solidity,
+      trackHalfWidth: r?.track.halfWidth,
+      trackPts: r ? r.track.pts.filter((_, i) => i % 6 === 0).map((p) => [Math.round(p.x), Math.round(p.y)]) : null,
       laps: r?.laps,
       beeping: audio.beeping,
       beepCount: audio.beepCount,
@@ -127,6 +138,7 @@ window.__horse = {
         id: h.id, name: h.name, isPlayer: h.isPlayer, x: h.pos.x, y: h.pos.y, heading: h.heading,
         speed: h.fwdSpeed, state: h.state, stun: h.stunTimer, lap: h.lap, progress: h.progress,
         finished: h.finished, place: r.placeOf(h), mode: h.ctrl.mode,
+        top: h.topSpeed, topTarget: h.topTarget, boost: h.boostTimer, bounces: h.bounces, z: h.z,
       })),
     }
   },
@@ -140,6 +152,7 @@ window.__horse = {
     setupRam: (attackerId: number, victimId = 0) => {
       if (!race) return
       const a = race.horses[attackerId], v = race.horses[victimId]
+      for (const h of [a, v]) { h.state = 'normal'; h.recoverTimer = 0; h.z = 0; h.boostTimer = 0 }
       const at = sample(race.track, v.lastS + 60)
       v.pos = { ...at.p }
       v.heading = Math.atan2(at.tan.y, at.tan.x)
@@ -149,14 +162,17 @@ window.__horse = {
       a.pos = { ...back.p }
       a.trackIdx = back.i
       a.heading = v.heading
-      a.vel = fromAngle(a.heading, HORSE.topSpeed)
-      a.fwdSpeed = HORSE.topSpeed
+      a.vel = fromAngle(a.heading, a.topSpeed)
+      a.fwdSpeed = a.topSpeed
       a.ai.backupTimer = 0
     },
     /** Move every horse far away except the player (clear road for tests). */
     clearRoad: () => {
       if (!race) return
       const L = race.track.length
+      const me = race.player
+      if (me.state !== 'normal') { me.state = 'normal'; me.z = 0; me.vel = { x: 0, y: 0 }; me.fwdSpeed = 0 }
+      me.recoverTimer = 0; me.boostTimer = 0
       race.horses.forEach((h) => {
         if (h.isPlayer) return
         const s = (((race!.player.lastS + L / 2 + h.id * 90) % L) + L) % L
@@ -186,6 +202,17 @@ window.__horse = {
       const at = sample(race.track, p.lastS + ahead)
       return Math.atan2(at.p.y - p.pos.y, at.p.x - p.pos.x)
     },
-    freezeBots: (on: boolean) => { if (race) race.horses.forEach((h) => { if (!h.isPlayer) h.topSpeed = on ? 0 : HORSE.topSpeed * h.ai.skill }) },
+    overview: (on = true) => { overview = on },
+    freezeBots: (on: boolean) => { if (race) race.horses.forEach((h) => { if (!h.isPlayer) h.frozen = on }) },
+    /** Fire horse `id` sideways into the fence at top speed (fence hits must not explode). */
+    fenceSlam: (id = 0) => {
+      if (!race) return
+      const h = race.horses[id]
+      const at = sample(race.track, h.lastS)
+      h.pos = { ...at.p }; h.trackIdx = at.i
+      h.heading = Math.atan2(at.nrm.y, at.nrm.x)
+      h.vel = fromAngle(h.heading, h.topSpeed * 1.2)
+      h.fwdSpeed = h.topSpeed * 1.2
+    },
   } : {}),
 }

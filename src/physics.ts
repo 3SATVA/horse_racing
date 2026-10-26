@@ -1,5 +1,5 @@
 import { HORSE } from './config'
-import { canBeHit, type Horse } from './horse'
+import { boostMul, canBeHit, type Horse } from './horse'
 import { approach, clamp, dot, fromAngle, wrapAngle } from './math'
 import { locate, type Track } from './track'
 
@@ -8,23 +8,28 @@ export type PhysEvent =
   | { type: 'explode'; x: number; y: number; victim: number }
   | { type: 'bump'; x: number; y: number; strength: number; a: number; b: number }
   | { type: 'scrape'; x: number; y: number; horse: number }
+  | { type: 'bounce'; x: number; y: number; horse: number; strength: number }
+  | { type: 'boost'; horse: number }
 
 /** Can `h` launch something in direction `dir` (unit vector from h to the other horse)? */
 export function isRamming(h: Horse, dir: { x: number; y: number }): boolean {
   if (h.state !== 'normal') return false
-  if (h.fwdSpeed < HORSE.ramThreshold * HORSE.topSpeed) return false
+  if (h.fwdSpeed < HORSE.ramThreshold * h.topSpeed) return false
   return dot(fromAngle(h.heading), dir) > 0.35
 }
 
 function applyControl(h: Horse, dt: number) {
   const c = h.ctrl
   let vF = h.fwdSpeed
-  const top = h.topSpeed
+  // A catch-up boost raises both the ceiling and whatever speed the rider asks for.
+  const bm = boostMul(h)
+  const top = h.topSpeed * bm
+  const accel = HORSE.accel * (h.boostTimer > 0 ? HORSE.boostAccelMul : 1)
   switch (c.mode) {
     case 'drive': {
-      const target = clamp(c.targetSpeed, 0, top)
+      const target = clamp(c.targetSpeed * bm, 0, top)
       if (vF < 0) vF = approach(vF, 0, HORSE.brake * dt)
-      else if (vF < target) vF = Math.min(target, vF + HORSE.accel * (1 - 0.5 * (vF / top)) * dt)
+      else if (vF < target) vF = Math.min(target, vF + accel * (1 - 0.5 * (vF / top)) * dt)
       else vF = approach(vF, target, HORSE.coastDecel * 2 * dt)
       break
     }
@@ -63,28 +68,39 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
   const W = tr.halfWidth
 
   if (h.state === 'flying') {
+    // Pinball phase: the horse already exploded on impact; now it ricochets off the fences.
     h.flyTimer += dt
     h.pos.x += h.vel.x * dt; h.pos.y += h.vel.y * dt
-    h.vel.x *= Math.exp(-0.5 * dt); h.vel.y *= Math.exp(-0.5 * dt)
+    h.vel.x *= Math.exp(-0.9 * dt); h.vel.y *= Math.exp(-0.9 * dt)
     const t = h.flyTimer
-    h.z = Math.max(0, 260 * t - 330 * t * t) + 6
-    h.spin += 16 * dt
-    h.heading = wrapAngle(h.heading + 9 * dt)
+    // A few hops, each lower than the last.
+    h.z = 6 + 70 * Math.abs(Math.sin(t * Math.PI * 2.2)) * Math.exp(-1.6 * t)
+    h.heading = wrapAngle(h.heading + h.spin * dt)
     const loc = locate(tr, h.pos, h.trackIdx)
     h.trackIdx = loc.i
-    if (loc.lat * h.flySide >= W - r * 0.6 || h.flyTimer > 1.4) {
-      // Slam into the fence: boom.
-      const side = loc.lat * h.flySide >= 0 ? h.flySide : Math.sign(loc.lat) || h.flySide
-      const lat = side * (W - r)
-      h.pos = { x: loc.p.x + loc.nrm.x * lat, y: loc.p.y + loc.nrm.y * lat }
+    const limit = W - r
+    if (Math.abs(loc.lat) > limit) {
+      const sgn = Math.sign(loc.lat)
+      const n = { x: loc.nrm.x * sgn, y: loc.nrm.y * sgn }
+      const over = Math.abs(loc.lat) - limit
+      h.pos.x -= n.x * over; h.pos.y -= n.y * over
+      const vn = dot(h.vel, n)
+      if (vn > 0) {
+        const tv = { x: h.vel.x - n.x * vn, y: h.vel.y - n.y * vn }
+        h.vel = { x: tv.x * HORSE.bounceFriction - n.x * vn * HORSE.bounceRestitution, y: tv.y * HORSE.bounceFriction - n.y * vn * HORSE.bounceRestitution }
+        h.spin = -h.spin * 0.8 + (Math.random() - 0.5) * 6
+        h.bounces++
+        if (vn > 60) ev.push({ type: 'bounce', x: h.pos.x + n.x * r, y: h.pos.y + n.y * r, horse: h.id, strength: Math.min(1, vn / 600) })
+      }
+    }
+    const spd = Math.hypot(h.vel.x, h.vel.y)
+    if (h.flyTimer > HORSE.flightSeconds || (h.flyTimer > 0.6 && spd < 70)) {
       h.vel = { x: 0, y: 0 }
       h.fwdSpeed = 0
       h.z = 0
       h.state = 'stunned'
       h.stunTimer = HORSE.stunSeconds
       h.reverseTimer = 0
-      const fx = loc.p.x + loc.nrm.x * side * W, fy = loc.p.y + loc.nrm.y * side * W
-      ev.push({ type: 'explode', x: fx, y: fy, victim: h.id })
     }
     return ev
   }
@@ -97,12 +113,15 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
       h.state = 'normal'
       h.stunTimer = 0
       h.recoverTimer = HORSE.recoverSeconds
+      h.boostTimer = HORSE.boostSeconds
       h.spin = 0
+      ev.push({ type: 'boost', horse: h.id })
     }
     return ev
   }
 
-  if (frozen) { h.vel = { x: 0, y: 0 }; h.fwdSpeed = 0; return ev }
+  if (frozen || h.frozen) { h.vel = { x: 0, y: 0 }; h.fwdSpeed = 0; return ev }
+  if (h.boostTimer > 0) h.boostTimer = Math.max(0, h.boostTimer - dt)
 
   applyControl(h, dt)
   h.pos.x += h.vel.x * dt; h.pos.y += h.vel.y * dt
@@ -119,7 +138,7 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
     const vn = dot(h.vel, n)
     if (vn > 0) {
       h.vel.x -= n.x * vn * 1.3; h.vel.y -= n.y * vn * 1.3
-      h.vel.x *= 0.93; h.vel.y *= 0.93
+      h.vel.x *= 0.9; h.vel.y *= 0.9 // fences only bump and slow you, never explode
       if (vn > 90) ev.push({ type: 'scrape', x: h.pos.x + n.x * r, y: h.pos.y + n.y * r, horse: h.id })
     }
   }
@@ -128,29 +147,39 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
   return ev
 }
 
-function launch(victim: Horse, attacker: Horse, tr: Track): PhysEvent {
+function launch(victim: Horse, attacker: Horse, tr: Track): PhysEvent[] {
+  attacker.ai.ramCooldown = 8 // bots don't go hunting again straight away
   const loc = locate(tr, victim.pos, victim.trackIdx)
   let side = Math.sign(loc.lat)
   if (Math.abs(loc.lat) < 6) {
-    // Dead centre: send it to the side the hit pushes toward.
     const push = { x: victim.pos.x - attacker.pos.x, y: victim.pos.y - attacker.pos.y }
     side = dot(push, loc.nrm) >= 0 ? 1 : -1
   }
+  // Mostly sideways (into a fence) plus a lot of the attacker's momentum, so it pinballs down the track.
   const out = { x: loc.nrm.x * side, y: loc.nrm.y * side }
   const af = fromAngle(attacker.heading)
-  const carry = attacker.fwdSpeed * 0.3
+  const carry = attacker.fwdSpeed * 0.75
   victim.vel = { x: out.x * HORSE.launchSpeed + af.x * carry, y: out.y * HORSE.launchSpeed + af.y * carry }
   victim.state = 'flying'
   victim.flyTimer = 0
   victim.flySide = side
   victim.reverseTimer = 0
+  victim.boostTimer = 0
+  victim.bounces = 0
+  victim.spin = (Math.random() < 0.5 ? -1 : 1) * (10 + Math.random() * 6)
   attacker.vel.x *= 0.72; attacker.vel.y *= 0.72
   attacker.fwdSpeed *= 0.72
-  return { type: 'launch', x: victim.pos.x, y: victim.pos.y, victim: victim.id, attacker: attacker.id }
+  // The explosion happens right here, at the moment of impact.
+  const ix = (victim.pos.x + attacker.pos.x) / 2, iy = (victim.pos.y + attacker.pos.y) / 2
+  return [
+    { type: 'launch', x: victim.pos.x, y: victim.pos.y, victim: victim.id, attacker: attacker.id },
+    { type: 'explode', x: ix, y: iy, victim: victim.id },
+  ]
 }
 
 /** Horse-vs-horse contacts: normal bumps, or a top-speed ram that launches the other horse. */
-export function collide(horses: Horse[], tr: Track): PhysEvent[] {
+/** `botRams` false = bots can't blow each other up (start-of-race grace, avoids a grid pile-up). */
+export function collide(horses: Horse[], tr: Track, botRams = true): PhysEvent[] {
   const ev: PhysEvent[] = []
   const R2 = HORSE.radius * 2
   for (let i = 0; i < horses.length; i++) {
@@ -161,12 +190,13 @@ export function collide(horses: Horse[], tr: Track): PhysEvent[] {
       const d = Math.hypot(dx, dy)
       if (d >= R2 || d === 0) continue
       const n = { x: dx / d, y: dy / d }
-      const aRams = isRamming(a, n) && canBeHit(b)
-      const bRams = isRamming(b, { x: -n.x, y: -n.y }) && canBeHit(a)
-      if (aRams && (!bRams || a.fwdSpeed >= b.fwdSpeed)) { ev.push(launch(b, a, tr)); continue }
-      if (bRams) { ev.push(launch(a, b, tr)); continue }
+      const armed = botRams || a.isPlayer || b.isPlayer
+      const aRams = armed && isRamming(a, n) && canBeHit(b)
+      const bRams = armed && isRamming(b, { x: -n.x, y: -n.y }) && canBeHit(a)
+      if (aRams && (!bRams || a.fwdSpeed >= b.fwdSpeed)) { ev.push(...launch(b, a, tr)); continue }
+      if (bRams) { ev.push(...launch(a, b, tr)); continue }
 
-      // Ordinary shove. A horse lying stunned on the fence acts like a wall.
+      // Ordinary shove. A horse lying stunned acts like a wall.
       const overlap = R2 - d
       const aFixed = a.state === 'stunned', bFixed = b.state === 'stunned'
       const wa = aFixed ? 0 : bFixed ? 1 : 0.5

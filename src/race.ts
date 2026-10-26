@@ -2,9 +2,9 @@ import { setupBot, thinkBot } from './ai'
 import type { Audio } from './audio'
 import { HORSE, HORSE_COLORS, RACE } from './config'
 import type { Effects } from './effects'
-import { makeHorse, type Horse } from './horse'
+import { makeHorse, rollTopSpeed, updateTopSpeed, type Horse } from './horse'
 import type { Input } from './input'
-import { clamp, dist, dot, fromAngle } from './math'
+import { clamp, dist, dot, fromAngle, rand, randInt } from './math'
 import { collide, stepHorse, type PhysEvent } from './physics'
 import { generateTrack, locate, sample, type Track } from './track'
 
@@ -27,24 +27,32 @@ export class Race {
   toasts: { text: string; t: number }[] = []
   onEvent: (e: PhysEvent) => void = () => {}
 
-  constructor(public fx: Effects, public audio: Audio, laps = RACE.laps) {
+  constructor(public fx: Effects, public audio: Audio, laps = RACE.laps, rivals = -1) {
     this.laps = laps
     this.track = generateTrack()
-    this.horses = HORSE_COLORS.slice(0, RACE.bots + 1).map((c, i) => makeHorse(i, c.name, c, i === 0))
+    const bots = rivals >= RACE.minBots && rivals <= RACE.maxBots ? rivals : randInt(RACE.minBots, RACE.maxBots)
+    this.horses = HORSE_COLORS.slice(0, bots + 1).map((c, i) => makeHorse(i, c.name, c, i === 0))
     this.player = this.horses[0]
-    this.horses.forEach((h, i) => { if (i > 0) setupBot(h, i - 1) })
+    this.horses.forEach((h, i) => {
+      if (i > 0) setupBot(h, i - 1)
+      rollTopSpeed(h)
+      h.topSpeed = h.topTarget
+      h.topTimer = rand(0, HORSE.topSpeedMaxInterval) // stagger: nobody changes at the same moment
+    })
     this.placeOnGrid()
   }
 
   private placeOnGrid() {
     const tr = this.track
     const L = tr.length
-    // Player starts on the back row, so there is someone to catch.
-    const slots = [[1, -1], [0, -1], [0, 1], [1, 1]] as const
-    const order = [0, 1, 2, 3]
+    // Two-wide grid. The player starts on the back row, so there is someone to catch.
+    const n = this.horses.length
+    const rows = Math.ceil(n / 2)
     this.horses.forEach((h, k) => {
-      const [row, side] = slots[order[k]]
-      const s = L - 70 - row * 70
+      const slot = k === 0 ? n - 1 : k - 1
+      const row = Math.min(rows - 1, Math.floor(slot / 2))
+      const side = slot % 2 === 0 ? -1 : 1
+      const s = L - 70 - row * 62
       const at = sample(tr, s)
       const lat = side * tr.halfWidth * 0.4
       h.pos = { x: at.p.x + at.nrm.x * lat, y: at.p.y + at.nrm.y * lat }
@@ -113,19 +121,25 @@ export class Race {
       else { this.player.ctrl.mode = 'stop'; this.player.ctrl.aim = null; this.player.ctrl.steer = 0 }
     }
 
+    for (const h of this.horses) updateTopSpeed(h, dt)
+
     for (const h of this.horses) {
       if (h.isPlayer) continue
       if (frozen) { h.ctrl.mode = 'coast'; continue }
-      thinkBot(h, this.horses, this.track, dt, this.player)
+      thinkBot(h, this.horses, this.track, dt, this.player, this.time > RACE.startGrace)
     }
 
     const events: PhysEvent[] = []
     for (const h of this.horses) events.push(...stepHorse(h, this.track, dt, frozen))
-    if (!frozen) events.push(...collide(this.horses, this.track))
+    if (!frozen) events.push(...collide(this.horses, this.track, this.time > RACE.startGrace))
     for (const e of events) this.handle(e)
 
-    // Dust from galloping hooves.
+    // Dust from galloping hooves; sparks trail a boosting horse.
     for (const h of this.horses) {
+      if (h.state === 'normal' && h.boostTimer > 0 && Math.random() < dt * 40) {
+        const back = fromAngle(h.heading, -24)
+        this.fx.boostTrail(h.pos.x + back.x, h.pos.y + back.y, h.colors.silk)
+      }
       if (h.state === 'normal' && Math.abs(h.fwdSpeed) > 160 && Math.random() < dt * 14) {
         const back = fromAngle(h.heading, -20)
         this.fx.dust(h.pos.x + back.x, h.pos.y + back.y, 1)
@@ -176,8 +190,8 @@ export class Race {
       case 'launch': {
         this.audio.whoosh()
         const v = this.horses[e.victim], a = this.horses[e.attacker]
-        if (a.isPlayer) this.toast(`BOOM! You launched ${v.name}!`)
-        else if (v.isPlayer) this.toast(`${a.name} launched you!`)
+        if (a.isPlayer) this.toast(`BOOM! You blew up ${v.name}!`)
+        else if (v.isPlayer) this.toast(`${a.name} blew you up!`)
         break
       }
       case 'explode': {
@@ -191,6 +205,16 @@ export class Race {
       case 'bump':
         if (e.a === p.id || e.b === p.id) this.audio.bump(e.strength)
         this.fx.dust(e.x, e.y, 3)
+        break
+      case 'bounce': {
+        const k = near(e.x, e.y)
+        this.audio.bump(0.4 + 0.6 * e.strength)
+        this.fx.dust(e.x, e.y, 5)
+        this.fx.addShake(5 * k * e.strength)
+        break
+      }
+      case 'boost':
+        if (e.horse === p.id) { this.toast('CATCH-UP BOOST!', 1.8); this.audio.whoosh() }
         break
       case 'scrape':
         if (e.horse === p.id) this.audio.scrape()

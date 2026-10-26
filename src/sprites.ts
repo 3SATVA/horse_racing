@@ -4,7 +4,7 @@ import type { Horse } from './horse'
  * Horse art lives ONLY in this file.
  *
  * Today every horse is drawn with simple canvas shapes. To use real sprites,
- * call `setHorseSprite(index, url)` (index 0 = player, 1..3 = bots) at startup,
+ * call `setHorseSprite(index, url)` (index 0 = player, 1..7 = bots) at startup,
  * e.g. in main.ts:
  *
  *   setHorseSprite(0, './sprites/horse-player.png')

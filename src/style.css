@@ -70,3 +70,23 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 5px; border-radius: 5
   .hud-card { font-size: 16px; padding: 4px 10px; }
   .speedo-bar { width: 80px; }
 }
+
+/* v2: boost, wandering top speed, up to 8 horses in results */
+#speedFill.boost { background: linear-gradient(90deg, #ffe27a, #fff6c2, #ffb21f); box-shadow: 0 0 10px #ffd23f; }
+.status.boost { background: linear-gradient(90deg, rgba(255,170,20,0.95), rgba(255,215,60,0.95)); color: #2b1d00; box-shadow: 0 0 18px rgba(255,210,63,0.8); }
+.speed-top { font-size: 11px; font-weight: 800; opacity: 0.9; font-variant-numeric: tabular-nums; min-width: 64px; }
+.speed-top.up { color: #8ef08e; }
+.speed-top.down { color: #ffb08a; }
+.results { max-height: 52vh; overflow-y: auto; }
+@media (max-height: 520px) {
+  .results { gap: 3px; max-height: 46vh; }
+  .results li { padding: 4px 10px; font-size: 14px; }
+  .results .place { font-size: 16px; }
+  .screen.dim .panel { gap: 6px; }
+  .screen.dim .btn { min-height: 44px; font-size: 17px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .results { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 6px; max-height: none; overflow: visible; }
+  .results li { grid-template-columns: 34px 14px 1fr auto; gap: 6px; padding: 4px 8px; font-size: 13px; }
+  .results .place { font-size: 14px; }
+}

@@ -3,7 +3,7 @@ import { rand } from './math'
 export interface Particle {
   x: number; y: number; vx: number; vy: number
   life: number; max: number; size: number; color: string
-  kind: 'spark' | 'smoke' | 'debris' | 'dust'
+  kind: 'spark' | 'smoke' | 'debris' | 'dust' | 'boost'
 }
 
 export interface Decal { x: number; y: number; r: number; age: number }
@@ -41,6 +41,10 @@ export class Effects {
     for (let i = 0; i < n; i++) {
       this.particles.push({ x: x + rand(-6, 6), y: y + rand(-6, 6), vx: rand(-30, 30), vy: rand(-30, 30), life: rand(0.3, 0.6), max: 0.6, size: rand(4, 8), color: 'rgba(196,160,110,', kind: 'dust' })
     }
+  }
+
+  boostTrail(x: number, y: number, color: string) {
+    this.particles.push({ x: x + rand(-5, 5), y: y + rand(-5, 5), vx: rand(-20, 20), vy: rand(-20, 20), life: 0.45, max: 0.45, size: rand(7, 11), color, kind: 'boost' })
   }
 
   addShake(amount: number) { this.shake = Math.min(28, this.shake + amount) }

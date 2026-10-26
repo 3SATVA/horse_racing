@@ -112,12 +112,12 @@ export class Renderer {
     }
 
     // Dust behind feet.
-    for (const p of r.fx.particles) if (p.kind === 'dust') this.drawParticle(p)
+    for (const p of r.fx.particles) if (p.kind === 'dust' || p.kind === 'boost') this.drawParticle(p)
 
     const sorted = [...r.horses].sort((a, b) => (a.z > 0 ? 1 : 0) - (b.z > 0 ? 1 : 0) || a.pos.y - b.pos.y)
     for (const h of sorted) this.drawHorse(h, h === r.player, r.time)
 
-    for (const p of r.fx.particles) if (p.kind !== 'dust') this.drawParticle(p)
+    for (const p of r.fx.particles) if (p.kind !== 'dust' && p.kind !== 'boost') this.drawParticle(p)
     for (const ring of r.fx.rings) {
       ctx.strokeStyle = `rgba(255,240,200,${ring.life * 1.6})`
       ctx.lineWidth = 6
@@ -205,6 +205,18 @@ export class Renderer {
   private drawParticle(p: { x: number; y: number; size: number; life: number; max: number; color: string; kind: string }) {
     const ctx = this.ctx
     const a = Math.max(0, p.life / p.max)
+    if (p.kind === 'boost') {
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalAlpha = a * 0.75
+      ctx.fillStyle = p.color
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, Math.PI * 2); ctx.fill()
+      ctx.globalAlpha = a * 0.9
+      ctx.fillStyle = '#fff6c2'
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.35 * a, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+      return
+    }
     if (p.kind === 'smoke' || p.kind === 'dust') ctx.fillStyle = p.color + (a * (p.kind === 'smoke' ? 0.55 : 0.5)).toFixed(3) + ')'
     else { ctx.globalAlpha = a; ctx.fillStyle = p.color }
     ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (p.kind === 'spark' ? 0.4 + a * 0.6 : 1), 0, Math.PI * 2); ctx.fill()
@@ -218,6 +230,16 @@ export class Renderer {
     ctx.beginPath()
     ctx.ellipse(h.pos.x + 4, h.pos.y + 6, 26 * (1 - Math.min(0.4, h.z / 200)), 13, h.heading, 0, Math.PI * 2)
     ctx.fill()
+
+    if (h.boostTimer > 0 && h.state === 'normal') {
+      // Catch-up boost: pulsing golden aura.
+      const pulse = 0.75 + 0.25 * Math.sin(time * 18)
+      const g = ctx.createRadialGradient(h.pos.x, h.pos.y, 8, h.pos.x, h.pos.y, 48)
+      g.addColorStop(0, `rgba(255,230,120,${0.55 * pulse})`)
+      g.addColorStop(1, 'rgba(255,170,40,0)')
+      ctx.fillStyle = g
+      ctx.beginPath(); ctx.arc(h.pos.x, h.pos.y, 48, 0, Math.PI * 2); ctx.fill()
+    }
 
     ctx.save()
     const lift = h.z
