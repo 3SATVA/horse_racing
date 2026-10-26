@@ -29,7 +29,7 @@ button { font: inherit; cursor: pointer; touch-action: manipulation; }
 .status.stun { background: rgba(200, 140, 0, 0.9); }
 .status.rev { background: rgba(40, 110, 200, 0.85); }
 
-.countdown { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); font-size: min(30vw, 180px); font-weight: 900; color: #fff36b; text-shadow: 0 6px 0 #a26b00, 0 10px 30px rgba(0,0,0,0.5); pointer-events: none; }
+.countdown { position: absolute; left: 50%; top: 24%; transform: translate(-50%, -50%); font-size: min(30vw, 180px); font-weight: 900; color: #fff36b; text-shadow: 0 6px 0 #a26b00, 0 10px 30px rgba(0,0,0,0.5); pointer-events: none; }
 .toast { position: absolute; left: 50%; top: 26%; transform: translateX(-50%); font-size: clamp(20px, 5vw, 40px); font-weight: 900; color: #fff; text-shadow: 0 3px 0 #000, 0 0 18px rgba(0,0,0,0.6); pointer-events: none; text-align: center; white-space: nowrap; }
 
 .screen { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); overflow-y: auto; touch-action: pan-y;

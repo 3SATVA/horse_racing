@@ -179,6 +179,13 @@ window.__horse = {
       p.lastS = s
       p.progress = race.laps * L - dist
     },
+    /** Screen/world angle from the player to the centre line `ahead` units on (test autopilot). */
+    aheadAngle: (ahead = 170) => {
+      if (!race) return 0
+      const p = race.player
+      const at = sample(race.track, p.lastS + ahead)
+      return Math.atan2(at.p.y - p.pos.y, at.p.x - p.pos.x)
+    },
     freezeBots: (on: boolean) => { if (race) race.horses.forEach((h) => { if (!h.isPlayer) h.topSpeed = on ? 0 : HORSE.topSpeed * h.ai.skill }) },
   } : {}),
 }
