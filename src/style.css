@@ -146,7 +146,7 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 5px; border-radius: 5
 .shop-item .acts .btn { flex: 1; min-height: 40px; font-size: 15px; box-shadow: 0 3px 0 #a26b00; }
 .shop-item .acts .btn.eq { background: #e6c3ff; color: #2a0f4d; box-shadow: 0 3px 0 #7b3cff; }
 .shop-item .acts .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.shop-item .badge { position: absolute; top: 8px; right: 8px; font-size: 11px; font-weight: 900; background: #ffd23f; color: #2b1d00; padding: 2px 7px; border-radius: 8px; }
+.shop-item .badge { position: absolute; top: -9px; right: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.35); font-size: 11px; font-weight: 900; background: #ffd23f; color: #2b1d00; padding: 2px 7px; border-radius: 8px; }
 .shop-item.cant .buy { filter: grayscale(0.7); }
 .shop-item.bought { animation: bought 0.5s ease; }
 @keyframes bought { 30% { transform: scale(1.05); box-shadow: 0 0 30px #ffd23f; } }
