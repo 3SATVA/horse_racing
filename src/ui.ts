@@ -1,9 +1,10 @@
-import { HORSE } from './config'
+import { ABILITIES, abilityDef, type AbilityId, type Save } from './abilities'
+import { HORSE, SLOTS } from './config'
 import { ordinal, type Race } from './race'
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 
-export type Screen = 'menu' | 'race' | 'pause' | 'results'
+export type Screen = 'menu' | 'race' | 'pause' | 'results' | 'shop'
 
 /** DOM menus and the in-race HUD. */
 export class UI {
@@ -12,6 +13,9 @@ export class UI {
   menu = $('screenMenu')
   pause = $('screenPause')
   results = $('screenResults')
+  shop = $('screenShop')
+  abilityBar = $('abilityBar')
+  private barKey = ''
   countdownEl = $('countdown')
   toastEl = $('toast')
   status = $('status')
@@ -22,13 +26,102 @@ export class UI {
     this.menu.hidden = s !== 'menu'
     this.pause.hidden = s !== 'pause'
     this.results.hidden = s !== 'results'
-    this.hud.hidden = s === 'menu'
-    if (s === 'menu' || s === 'results') { this.countdownEl.hidden = true; this.toastEl.hidden = true }
+    this.shop.hidden = s !== 'shop'
+    this.hud.hidden = s === 'menu' || s === 'shop'
+    if (s === 'menu' || s === 'results' || s === 'shop') { this.countdownEl.hidden = true; this.toastEl.hidden = true }
   }
 
   on(id: string, fn: () => void) { $(id).addEventListener('click', (e) => { e.preventDefault(); fn() }) }
 
   setMuted(m: boolean) { this.btnMute.textContent = m ? '🔇' : '🔊'; this.btnMute.setAttribute('aria-label', m ? 'Unmute' : 'Mute') }
+
+  /** Coin balance + equipped ability on the menu and shop. */
+  updateWallet(save: Save, bump = false) {
+    for (const id of ['menuCoins', 'shopCoins']) {
+      const el = $(id)
+      el.textContent = String(save.coins)
+      if (bump) { const chip = el.parentElement!; chip.classList.remove('bump'); void chip.offsetWidth; chip.classList.add('bump') }
+    }
+    const eq = save.equipped.filter(Boolean) as AbilityId[]
+    $('menuEquippedName').textContent = eq.length ? eq.map((id) => `${abilityDef(id).icon} ${abilityDef(id).name} ×${save.inv[id]}`).join(', ') : 'nothing - visit the Magic Shop'
+  }
+
+  /** Draw the magic shop. */
+  renderShop(save: Save, onBuy: (id: AbilityId) => void, onEquip: (id: AbilityId) => void, flash?: AbilityId) {
+    this.updateWallet(save)
+    $('shopSlotsText').textContent = SLOTS === 1 ? 'one ability' : `${SLOTS} abilities`
+    const slots = $('shopSlots')
+    slots.innerHTML = ''
+    save.equipped.forEach((id, i) => {
+      const d = document.createElement('div')
+      d.className = 'slot-box' + (id ? '' : ' empty')
+      d.dataset.slot = String(i)
+      d.innerHTML = id
+        ? `<span class="ico">${abilityDef(id).icon}</span><span>Slot ${i + 1}: ${abilityDef(id).name} ×${save.inv[id]}</span>`
+        : `<span class="ico">⬚</span><span>Slot ${i + 1}: empty</span>`
+      slots.appendChild(d)
+    })
+    const list = $('shopList')
+    list.innerHTML = ''
+    for (const a of ABILITIES) {
+      const owned = save.inv[a.id]
+      const isEq = save.equipped.includes(a.id)
+      const card = document.createElement('div')
+      card.className = 'shop-item' + (isEq ? ' equipped' : '') + (save.coins < a.price ? ' cant' : '') + (flash === a.id ? ' bought' : '')
+      card.dataset.id = a.id
+      card.innerHTML = `
+        ${isEq ? '<span class="badge">EQUIPPED</span>' : ''}
+        <div class="top"><span class="ico">${a.icon}</span><div><div class="name">${a.name}</div><div class="owned">Owned: <b class="cnt">${owned}</b></div></div></div>
+        <p class="desc">${a.desc}</p>
+        <div class="acts">
+          <button class="btn buy" type="button" ${save.coins < a.price ? 'disabled' : ''}>Buy 🪙${a.price}</button>
+          <button class="btn eq" type="button" ${owned > 0 && !isEq ? '' : 'disabled'}>${isEq ? 'Equipped' : 'Equip'}</button>
+        </div>`
+      card.querySelector('.buy')!.addEventListener('click', (e) => { e.preventDefault(); onBuy(a.id) })
+      card.querySelector('.eq')!.addEventListener('click', (e) => { e.preventDefault(); onEquip(a.id) })
+      list.appendChild(card)
+    }
+  }
+
+  /** The in-race ability slot(s): icon + charges, tap to use. */
+  updateAbilityBar(race: Race, onUse: (slot: number) => void) {
+    const key = race.slots.map((id) => `${id}:${id ? race.charges[id] ?? 0 : 0}`).join('|')
+    if (key === this.barKey) return
+    const rebuild = this.abilityBar.children.length !== race.slots.length
+    this.barKey = key
+    if (rebuild) {
+      this.abilityBar.innerHTML = ''
+      race.slots.forEach((_, i) => {
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.className = 'ability-slot'
+        b.dataset.slot = String(i)
+        b.innerHTML = '<span class="ico"></span><span class="n"></span><span class="key"></span>'
+        b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); onUse(i) })
+        this.abilityBar.appendChild(b)
+      })
+    }
+    race.slots.forEach((id, i) => {
+      const b = this.abilityBar.children[i] as HTMLElement
+      const n = id ? race.charges[id] ?? 0 : 0
+      b.classList.toggle('empty', !id)
+      b.classList.toggle('out', !!id && n <= 0)
+      b.dataset.ability = id ?? ''
+      b.setAttribute('aria-label', id ? `Use ${abilityDef(id).name} (${n} left)` : 'No ability equipped')
+      b.querySelector('.ico')!.textContent = id ? abilityDef(id).icon : '✨'
+      b.querySelector('.n')!.textContent = id ? String(n) : '–'
+      b.querySelector('.key')!.textContent = i === 0 ? 'E' : String(i + 1)
+    })
+  }
+
+  flashSlot(i: number) {
+    const b = this.abilityBar.children[i] as HTMLElement | undefined
+    if (!b) return
+    b.classList.add('fired')
+    setTimeout(() => b.classList.remove('fired'), 140)
+  }
+
+  resetAbilityBar() { this.barKey = ''; this.abilityBar.innerHTML = '' }
 
   updateHud(race: Race) {
     const p = race.player
@@ -73,7 +166,7 @@ export class UI {
     if (t) this.toastEl.textContent = t.text
   }
 
-  showResults(race: Race) {
+  showResults(race: Race, reward?: { base: number; bonus: number; total: number; kills: number; coins: number }) {
     const list = $('resultList')
     list.innerHTML = ''
     const order = race.standings()
@@ -88,6 +181,10 @@ export class UI {
       : last
         ? `${who} crossed the line first and you were last of ${order.length}.`
         : `${who} crossed the line first. You finished ${ordinal(me)} of ${order.length}.`
+    const rc = $('resultCoins')
+    rc.innerHTML = reward
+      ? `+🪙${reward.total} coins <small>${ordinal(me)} place: ${reward.base}${reward.kills ? ` · ${reward.kills} blown up: +${reward.bonus}` : ''} · balance 🪙${reward.coins}</small>`
+      : ''
     const scr = $('screenResults')
     scr.classList.toggle('lost', last)
     scr.classList.toggle('placed', !won && !last)

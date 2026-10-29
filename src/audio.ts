@@ -69,6 +69,12 @@ export class Audio {
     this.tone(120, 0.5, 'sine', 0.5 * near, 0, 38)
   }
 
+  zap() { this.tone(900, 0.25, 'sawtooth', 0.08, 0, 200); this.noise(0.2, 0.08, 3000, 800) }
+  boing() { this.tone(300, 0.18, 'sine', 0.14, 0, 600) }
+  sizzle() { this.noise(0.6, 0.14, 5000, 1500); this.tone(200, 0.3, 'sawtooth', 0.05, 0, 90) }
+  slip() { this.tone(700, 0.45, 'triangle', 0.12, 0, 160) }
+  chime() { [880, 1175, 1568].forEach((f, i) => this.tone(f, 0.16, 'sine', 0.1, i * 0.07)) }
+  coin() { this.tone(988, 0.08, 'square', 0.07); this.tone(1319, 0.2, 'square', 0.07, 0.08) }
   whoosh() { this.noise(0.35, 0.18, 2500, 600) }
   bump(s: number) { this.tone(160, 0.12, 'triangle', 0.12 + 0.2 * s, 0, 70) }
   scrape() { this.noise(0.12, 0.06, 1800, 500) }

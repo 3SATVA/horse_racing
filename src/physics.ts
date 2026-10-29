@@ -1,11 +1,11 @@
-import { BOT, HORSE } from './config'
+import { ABILITY, BOT, HORSE } from './config'
 import { boostMul, canBeHit, type Horse } from './horse'
 import { approach, clamp, dot, fromAngle, wrapAngle } from './math'
 import { locate, type Track } from './track'
 
 export type PhysEvent =
+  | { type: 'explode'; x: number; y: number; victim: number; mini?: boolean }
   | { type: 'launch'; x: number; y: number; victim: number; attacker: number; kind: HitKind }
-  | { type: 'explode'; x: number; y: number; victim: number }
   | { type: 'bump'; x: number; y: number; strength: number; a: number; b: number }
   | { type: 'scrape'; x: number; y: number; horse: number }
   | { type: 'bounce'; x: number; y: number; horse: number; strength: number }
@@ -56,7 +56,7 @@ function applyControl(h: Horse, dt: number) {
   const c = h.ctrl
   let vF = h.fwdSpeed
   // A catch-up boost raises both the ceiling and whatever speed the rider asks for.
-  const bm = boostMul(h)
+  const bm = boostMul(h) * (h.slowTimer > 0 ? ABILITY.fireballSlowMul : 1)
   const top = h.topSpeed * bm
   const accel = HORSE.accel * (h.boostTimer > 0 ? HORSE.boostAccelMul : 1)
   switch (c.mode) {
@@ -78,7 +78,11 @@ function applyControl(h: Horse, dt: number) {
 
   const spd = Math.abs(vF)
   const rate = HORSE.turnRate * (0.4 + 0.6 * Math.min(1, spd / 140)) * (1 - 0.3 * clamp(spd / top, 0, 1))
-  if (c.aim !== null && c.mode === 'drive') {
+  if (h.spinOutTimer > 0) {
+    // Banana peel of doom: the nose turns on its own (random, lurching), the rider only has the throttle.
+    if (Math.random() < dt * 2.5) h.spinTurn = (Math.random() < 0.5 ? -1 : 1) * (3 + Math.random() * 5)
+    h.heading += h.spinTurn * dt
+  } else if (c.aim !== null && c.mode === 'drive') {
     const diff = wrapAngle(c.aim - h.heading)
     h.heading += clamp(diff, -rate * dt, rate * dt)
   } else {
@@ -128,12 +132,14 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
       }
     }
     const spd = Math.hypot(h.vel.x, h.vel.y)
-    if (h.flyTimer > HORSE.flightSeconds || (h.flyTimer > 0.6 && spd < 70)) {
+    const flyLen = h.flyLen || HORSE.flightSeconds
+    if (h.flyTimer > flyLen || (h.flyTimer > Math.min(0.6, flyLen) && spd < 70)) {
       h.vel = { x: 0, y: 0 }
       h.fwdSpeed = 0
       h.z = 0
       h.state = 'stunned'
-      h.stunTimer = HORSE.stunSeconds
+      h.stunTimer = h.stunLen || HORSE.stunSeconds
+      h.flyLen = 0; h.stunLen = 0
       h.reverseTimer = 0
     }
     return ev
@@ -147,17 +153,23 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
       h.state = 'normal'
       h.stunTimer = 0
       h.recoverTimer = HORSE.recoverSeconds
-      h.boostTimer = HORSE.boostSeconds
       h.spin = 0
-      ev.push({ type: 'boost', horse: h.id })
+      if (h.noBoost) h.noBoost = false // grapple mini-explosion: no catch-up boost
+      else { h.boostTimer = HORSE.boostSeconds; ev.push({ type: 'boost', horse: h.id }) }
     }
     return ev
   }
 
   if (frozen || h.frozen) { h.vel = { x: 0, y: 0 }; h.fwdSpeed = 0; return ev }
   if (h.boostTimer > 0) h.boostTimer = Math.max(0, h.boostTimer - dt)
+  if (h.spinOutTimer > 0) h.spinOutTimer = Math.max(0, h.spinOutTimer - dt)
+  if (h.slowTimer > 0) h.slowTimer = Math.max(0, h.slowTimer - dt)
 
-  applyControl(h, dt)
+  if (h.knockTimer > 0) {
+    // Spiked ball: sliding backwards out of control.
+    h.knockTimer -= dt
+    h.vel.x *= Math.exp(-1.6 * dt); h.vel.y *= Math.exp(-1.6 * dt)
+  } else applyControl(h, dt)
   h.pos.x += h.vel.x * dt; h.pos.y += h.vel.y * dt
 
   // Fences on both sides.
@@ -218,6 +230,7 @@ function launch(victim: Horse, attacker: Horse, tr: Track, kind: HitKind, slowAt
   victim.reverseTimer = 0
   victim.boostTimer = 0
   victim.bounces = 0
+  victim.knockTimer = 0; victim.spinOutTimer = 0; victim.flyLen = 0; victim.stunLen = 0; victim.noBoost = false
   victim.spin = (Math.random() < 0.5 ? -1 : 1) * (10 + Math.random() * 6)
   if (slowAttacker) { attacker.vel.x *= 0.72; attacker.vel.y *= 0.72; attacker.fwdSpeed *= 0.72 }
   // The explosion happens right here, at the moment of impact.
@@ -226,6 +239,32 @@ function launch(victim: Horse, attacker: Horse, tr: Track, kind: HitKind, slowAt
     { type: 'launch', x: victim.pos.x, y: victim.pos.y, victim: victim.id, attacker: attacker.id, kind },
     { type: 'explode', x: ix, y: iy, victim: victim.id },
   ]
+}
+
+/**
+ * Explode a horse without a horse attacker (abilities). `mini` = grapple: a short hop and short
+ * stun, and no catch-up boost afterwards.
+ */
+export function blast(victim: Horse, from: { x: number; y: number }, tr: Track, mini = false): PhysEvent[] {
+  victim.timesExploded++
+  const loc = locate(tr, victim.pos, victim.trackIdx)
+  let side = Math.sign(loc.lat) || 1
+  if (Math.abs(loc.lat) < 6) side = dot({ x: victim.pos.x - from.x, y: victim.pos.y - from.y }, loc.nrm) >= 0 ? 1 : -1
+  const sp = mini ? HORSE.launchSpeed * 0.4 : HORSE.launchSpeed
+  victim.vel = { x: loc.nrm.x * side * sp, y: loc.nrm.y * side * sp }
+  victim.state = 'flying'
+  victim.flyTimer = 0
+  victim.flySide = side
+  victim.reverseTimer = 0
+  victim.boostTimer = 0
+  victim.bounces = 0
+  victim.knockTimer = 0
+  victim.spinOutTimer = 0
+  victim.spin = (Math.random() < 0.5 ? -1 : 1) * (10 + Math.random() * 6)
+  victim.flyLen = mini ? ABILITY.grappleFlySeconds : 0
+  victim.stunLen = mini ? ABILITY.grappleStunSeconds : 0
+  victim.noBoost = mini
+  return [{ type: 'explode', x: victim.pos.x, y: victim.pos.y, victim: victim.id, mini }]
 }
 
 /** Horse-vs-horse contacts: normal shoves, or a rear / head-on / side hit (see classifyHit) that launches. */

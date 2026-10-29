@@ -34,28 +34,50 @@
           <div id="speedTop" class="speed-top">TOP ● 0%</div>
         </div>
         <div id="status" class="status" hidden></div>
+        <div id="abilityBar" class="ability-bar"></div>
       </div>
 
       <div id="countdown" class="countdown" hidden>3</div>
       <div id="toast" class="toast" hidden></div>
 
       <section id="screenMenu" class="screen">
-        <div class="panel">
-          <div class="logo" aria-hidden="true">🏇</div>
+        <div class="panel menu-panel">
           <h1>Derby Dash</h1>
-          <p class="lede">Race up to seven rivals on a brand-new, twisty track every time. Ram a horse at top speed to blow it up and send it pinballing off the fences. Get blown up? You get a catch-up boost.</p>
-          <button id="btnPlay" class="btn play" type="button">PLAY</button>
+          <div class="pen-wrap">
+            <canvas id="pen" aria-label="Horse pen: click a horse 10 times to blow it up"></canvas>
+            <span class="pen-hint">Click a horse 10× 💥</span>
+          </div>
+          <button id="btnPlay" class="btn play" type="button"><span class="play-ico" aria-hidden="true">▶</span><span class="play-txt">PLAY</span><span class="shine" aria-hidden="true"></span></button>
+          <div class="menu-row">
+            <button id="btnShop" class="btn magic" type="button">✨ MAGIC SHOP</button>
+            <div class="coin-chip" title="Coins"><span aria-hidden="true">🪙</span> <span class="coins" id="menuCoins">0</span></div>
+          </div>
+          <button id="menuEquipped" class="equip-chip" type="button">Equipped: <b id="menuEquippedName">nothing</b></button>
           <div class="controls">
             <div>
               <h3>Keyboard</h3>
-              <p><kbd>W</kbd> gallop &nbsp;<kbd>S</kbd> brake / back up<br /><kbd>A</kbd> <kbd>D</kbd> steer</p>
+              <p><kbd>W</kbd> gallop &nbsp;<kbd>S</kbd> brake / back up<br /><kbd>A</kbd> <kbd>D</kbd> steer &nbsp;<kbd>E</kbd> / <kbd>1</kbd> ability</p>
             </div>
             <div>
               <h3>Drag (mouse or touch)</h3>
-              <p>Press and drag anywhere. The arrow is where you go, a longer drag is faster. Let go to stop. Tap, right-click or a second finger to back up.</p>
+              <p>Press and drag anywhere. The arrow is where you go, a longer drag is faster. Let go to stop. Tap, right-click or a second finger to back up. Tap the ability button to use it.</p>
             </div>
           </div>
           <p class="rotate-tip">Tip: turn your phone sideways for a wider view.</p>
+        </div>
+      </section>
+
+      <section id="screenShop" class="screen shop-screen" hidden>
+        <div class="panel shop-panel">
+          <div class="shop-head">
+            <button id="btnShopBack" class="btn secondary back" type="button">← Back</button>
+            <h2 class="shop-title">✨ Magic Shop ✨</h2>
+            <div class="coin-chip"><span aria-hidden="true">🪙</span> <span class="coins" id="shopCoins">0</span></div>
+          </div>
+          <p class="shop-sub">Buy charges, then equip <b id="shopSlotsText">one ability</b> to take into the race. One charge per use.</p>
+          <div id="shopSlots" class="shop-slots"></div>
+          <div id="shopList" class="shop-list"></div>
+          <button id="btnShopPlay" class="btn play small" type="button"><span class="play-ico" aria-hidden="true">▶</span><span class="play-txt">PLAY</span><span class="shine" aria-hidden="true"></span></button>
         </div>
       </section>
 
@@ -73,6 +95,7 @@
           <p class="eyebrow">Race over</p>
           <h2 id="resultTitle">You won!</h2>
           <p id="resultSub" class="result-sub"></p>
+          <div id="resultCoins" class="result-coins"></div>
           <ol id="resultList" class="results"></ol>
           <button id="btnAgain" class="btn" type="button">Play Again</button>
           <button id="btnMenu" class="btn secondary" type="button">Main Menu</button>

@@ -70,6 +70,19 @@ export interface Horse {
   surge: number
   timesExploded: number
   kills: number
+  // Ability effects
+  /** Banana peel: steering is random while > 0 (speed still yours). */
+  spinOutTimer: number
+  spinTurn: number
+  /** Fireball: slower top speed while > 0. */
+  slowTimer: number
+  /** Spiked ball: knocked backwards, no control while > 0. */
+  knockTimer: number
+  /** Next landing uses these instead of the defaults (grapple mini-explosion). 0 = default. */
+  flyLen: number
+  stunLen: number
+  /** Skip the catch-up boost after the next stun. */
+  noBoost: boolean
 }
 
 export function makeHorse(id: number, name: string, colors: Horse['colors'], isPlayer: boolean): Horse {
@@ -85,6 +98,7 @@ export function makeHorse(id: number, name: string, colors: Horse['colors'], isP
     gait: Math.random() * 10,
     ai: { lane: 0, laneTimer: 0, stuckTimer: 0, backupTimer: 0, aggression: 0, skill: 1, targetId: -1, ramCooldown: 0, hunting: 0, huntCooldown: rand(4, 10), huntsStarted: 0 },
     surge: 0, timesExploded: 0, kills: 0,
+    spinOutTimer: 0, spinTurn: 0, slowTimer: 0, knockTimer: 0, flyLen: 0, stunLen: 0, noBoost: false,
   }
 }
 

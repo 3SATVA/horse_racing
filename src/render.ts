@@ -5,6 +5,8 @@ import type { DragState } from './input'
 import { clamp, type Vec } from './math'
 import { drawHorseBody } from './sprites'
 import type { Track } from './track'
+import type { Item } from './abilities'
+import { drawItems } from './itemArt'
 
 export interface Camera { x: number; y: number; zoom: number }
 
@@ -17,6 +19,7 @@ export interface RenderInput {
   maxDrag: number
   time: number
   showArrow: boolean
+  items?: Item[]
 }
 
 interface TrackCache { track: Track; posts: Vec[] }
@@ -114,8 +117,10 @@ export class Renderer {
     // Dust behind feet.
     for (const p of r.fx.particles) if (p.kind === 'dust' || p.kind === 'boost') this.drawParticle(p)
 
+    if (r.items) drawItems(this.ctx, r.items, r.horses, r.player, r.time, true)
     const sorted = [...r.horses].sort((a, b) => (a.z > 0 ? 1 : 0) - (b.z > 0 ? 1 : 0) || a.pos.y - b.pos.y)
     for (const h of sorted) this.drawHorse(h, h === r.player, r.time)
+    if (r.items) drawItems(this.ctx, r.items, r.horses, r.player, r.time, false)
 
     for (const p of r.fx.particles) if (p.kind !== 'dust' && p.kind !== 'boost') this.drawParticle(p)
     for (const ring of r.fx.rings) {
@@ -223,6 +228,28 @@ export class Renderer {
     ctx.globalAlpha = 1
   }
 
+  /** Little status markers: spinning out (banana), scorched (fireball), knocked back (spiked ball). */
+  private drawAfflictions(h: Horse, time: number) {
+    const ctx = this.ctx
+    const marks: string[] = []
+    if (h.spinOutTimer > 0) marks.push('🍌💫')
+    if (h.slowTimer > 0) marks.push('🔥🐢')
+    if (h.knockTimer > 0.1) marks.push('⚽')
+    if (h.slowTimer > 0) {
+      ctx.save()
+      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(time * 20)
+      ctx.fillStyle = '#ff6a00'
+      ctx.beginPath(); ctx.arc(h.pos.x, h.pos.y, 30, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+    if (!marks.length) return
+    ctx.save()
+    ctx.font = '20px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(marks.join(' '), h.pos.x, h.pos.y - 52 + Math.sin(time * 10) * 3)
+    ctx.restore()
+  }
+
   private drawHorse(h: Horse, isPlayer: boolean, time: number) {
     const ctx = this.ctx
     // Shadow on the ground.
@@ -258,6 +285,7 @@ export class Renderer {
     ctx.restore()
 
     if (h.state === 'stunned') this.drawStun(h, time)
+    this.drawAfflictions(h, time)
 
     // Name tag.
     ctx.font = '700 13px system-ui, sans-serif'

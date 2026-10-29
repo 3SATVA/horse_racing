@@ -1,3 +1,4 @@
+import { AbilitySystem, type AbilityId } from './abilities'
 import { setupBot, thinkBot } from './ai'
 import type { Audio } from './audio'
 import { HORSE, HORSE_COLORS, HORSE_NAMES, RACE } from './config'
@@ -28,6 +29,12 @@ export class Race {
   /** Messages for the HUD toast (text, seconds). */
   toasts: { text: string; t: number }[] = []
   onEvent: (e: PhysEvent) => void = () => {}
+  abilities: AbilitySystem
+  /** Abilities equipped for this race (one per slot) and how many charges each has. */
+  slots: (AbilityId | null)[] = []
+  charges: Partial<Record<AbilityId, number>> = {}
+  /** Called when a charge is spent, so the save can be updated. */
+  onSpend: (id: AbilityId) => void = () => {}
 
   constructor(public fx: Effects, public audio: Audio, laps = RACE.laps, rivals = -1) {
     this.laps = laps
@@ -45,6 +52,7 @@ export class Race {
       h.topTimer = rand(0, HORSE.topSpeedMaxInterval) // stagger: nobody changes at the same moment
     })
     this.placeOnGrid()
+    this.abilities = new AbilitySystem(this.track, this.horses, this.player)
   }
 
   private placeOnGrid() {
@@ -85,6 +93,30 @@ export class Race {
   placeOf(h: Horse) { return this.standings().indexOf(h) + 1 }
 
   toast(text: string, t = 1.6) { this.toasts.push({ text, t }) }
+
+  /** Fire the ability in slot `i`. Uses one charge if it worked. */
+  useSlot(i: number): boolean {
+    const id = this.slots[i]
+    if (!id || this.phase !== 'racing' || this.player.finished) return false
+    if ((this.charges[id] ?? 0) <= 0) { this.toast('No charges left - visit the Magic Shop!'); return false }
+    if (!this.abilities.use(id)) { this.flushNotices(); return false }
+    this.charges[id] = (this.charges[id] ?? 0) - 1
+    this.onSpend(id)
+    this.flushNotices()
+    return true
+  }
+
+  private flushNotices() {
+    for (const n of this.abilities.notices) {
+      if (n.text) this.toast(n.text, 1.5)
+      if (n.sound === 'zap') this.audio.zap()
+      else if (n.sound === 'boing') this.audio.boing()
+      else if (n.sound === 'sizzle') this.audio.sizzle()
+      else if (n.sound === 'slip') this.audio.slip()
+      else if (n.sound === 'whoosh') this.audio.whoosh()
+    }
+    this.abilities.notices = []
+  }
 
   private playerControl(input: Input, dt: number) {
     const p = this.player
@@ -137,7 +169,13 @@ export class Race {
     const events: PhysEvent[] = []
     for (const h of this.horses) events.push(...stepHorse(h, this.track, dt, frozen))
     if (!frozen) events.push(...collide(this.horses, this.track, this.time > RACE.startGrace))
+    if (!frozen) events.push(...this.abilities.update(dt))
     for (const e of events) this.handle(e)
+    this.flushNotices()
+    for (const it of this.abilities.items) {
+      if (it.kind === 'fireball' && Math.random() < dt * 60) this.fx.boostTrail(it.pos.x, it.pos.y, Math.random() < 0.5 ? '#ff7a1a' : '#ffd23f')
+      if (it.kind === 'roomba' && Math.random() < dt * 10) this.fx.dust(it.pos.x, it.pos.y, 1)
+    }
 
     // Dust from galloping hooves; sparks trail a boosting horse.
     for (const h of this.horses) {
@@ -207,9 +245,10 @@ export class Race {
       }
       case 'explode': {
         const k = near(e.x, e.y)
-        this.fx.explode(e.x, e.y, 1)
-        this.fx.addShake(26 * k)
-        this.fx.flash = Math.max(this.fx.flash, 0.7 * k)
+        const m = e.mini ? 0.5 : 1
+        this.fx.explode(e.x, e.y, m)
+        this.fx.addShake(26 * k * m)
+        this.fx.flash = Math.max(this.fx.flash, 0.7 * k * m)
         this.audio.explosion(k)
         break
       }

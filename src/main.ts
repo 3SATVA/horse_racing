@@ -1,11 +1,13 @@
+import { ABILITIES, buy, equip, loadSave, raceReward, storeSave, type AbilityId } from './abilities'
 import { Audio } from './audio'
 import { HORSE, RACE } from './config'
 import { Effects } from './effects'
 import { Input } from './input'
+import { Pen } from './pen'
 import { fromAngle, wrapAngle } from './math'
 import { Race } from './race'
 import { Renderer } from './render'
-import { sample } from './track'
+import { locate, sample } from './track'
 import { UI, type Screen } from './ui'
 
 const canvas = document.getElementById('view') as HTMLCanvasElement
@@ -21,7 +23,21 @@ let screen: Screen = 'menu'
 let race: Race | null = null
 let menuRace = new Race(fx, audio) // drives the animated backdrop behind the menu
 let doneTimer = 0
+let rewarded = false
 let overview = false // debug: show the whole track
+
+let save = loadSave()
+const pen = new Pen(document.getElementById('pen') as HTMLCanvasElement, audio)
+window.addEventListener('resize', () => pen.resize())
+
+function refreshShop(flash?: AbilityId) {
+  ui.renderShop(save, (id) => {
+    audio.unlock()
+    if (buy(save, id)) { audio.coin(); audio.chime(); refreshShop(id); ui.updateWallet(save, true) }
+    else audio.bump(0.3)
+  }, (id) => { equip(save, id, 0); audio.chime(); refreshShop() }, flash)
+}
+ui.updateWallet(save)
 
 input.onGesture = () => audio.unlock()
 audio.setMuted(localStorage.getItem('derby.muted') === '1')
@@ -30,6 +46,8 @@ ui.setMuted(audio.muted)
 function setScreen(s: Screen) {
   screen = s
   ui.show(s)
+  if (s === 'menu') { ui.updateWallet(save); requestAnimationFrame(() => pen.resize()) }
+  if (s === 'shop') refreshShop()
   input.enabled = s === 'race'
   if (s !== 'race') input.reset()
 }
@@ -40,6 +58,13 @@ function startRace() {
   const laps = Number(params.get('laps')) || RACE.laps
   const rivals = params.has('rivals') ? Number(params.get('rivals')) : -1
   race = new Race(fx, audio, laps, rivals)
+  // Take the equipped abilities (and their charges) into the race.
+  save = loadSave()
+  race.slots = [...save.equipped]
+  for (const id of race.slots) if (id) race.charges[id] = save.inv[id]
+  race.onSpend = (id) => { save.inv[id] = Math.max(0, save.inv[id] - 1); storeSave(save) }
+  rewarded = false
+  ui.resetAbilityBar()
   renderer.snapCamera(race.player)
   doneTimer = 0
   setScreen('race')
@@ -53,6 +78,27 @@ function toMenu() {
 }
 
 ui.on('btnPlay', startRace)
+ui.on('btnShopPlay', startRace)
+ui.on('btnShop', () => { audio.unlock(); setScreen('shop') })
+ui.on('menuEquipped', () => { audio.unlock(); setScreen('shop') })
+ui.on('btnShopBack', () => setScreen('menu'))
+
+function useSlot(i: number) {
+  if (screen !== 'race' || !race) return
+  audio.unlock()
+  ui.flashSlot(i)
+  race.useSlot(i)
+}
+
+/** Pay out coins once per race: by place, plus a bonus per rival you blew up. */
+function finishRace(r: Race) {
+  r.phase = 'done'
+  const place = r.placeOf(r.player)
+  const rw = raceReward(place, r.player.kills)
+  if (!rewarded) { save = loadSave(); save.coins += rw.total; storeSave(save); rewarded = true }
+  ui.showResults(r, { ...rw, kills: r.player.kills, coins: save.coins })
+  audio.coin()
+}
 ui.on('btnAgain', startRace)
 ui.on('btnRestart', startRace)
 ui.on('btnMenu', toMenu)
@@ -69,6 +115,12 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' || e.key.toLowerCase() === 'p') {
     if (screen === 'race') setScreen('pause')
     else if (screen === 'pause') setScreen('race')
+  }
+  // Ability slots: E or 1 = slot 1, 2..n = further slots. (Not WASD/arrows.)
+  if (screen === 'race' && !e.repeat) {
+    const k = e.key.toLowerCase()
+    if (k === 'e') { e.preventDefault(); useSlot(0) }
+    else if (/^[1-9]$/.test(k) && Number(k) <= (race?.slots.length ?? 0)) { e.preventDefault(); useSlot(Number(k) - 1) }
   }
 })
 document.addEventListener('visibilitychange', () => { if (document.hidden && screen === 'race') setScreen('pause') })
@@ -94,15 +146,18 @@ function frame(now: number) {
     if (race.winner) {
       doneTimer += dt
       // You win: a short victory lap. A bot wins: straight to the "You lose" screen.
-      if (!race.winner.isPlayer || doneTimer > RACE.finishLinger) { race.phase = 'done'; ui.showResults(race); screen = 'results'; input.enabled = false }
+      if (!race.winner.isPlayer || doneTimer > RACE.finishLinger) { finishRace(race); screen = 'results'; input.enabled = false }
     }
     ui.updateHud(race)
+    ui.updateAbilityBar(race, useSlot)
   } else if (screen === 'menu') {
     // Idle flyover of a fresh track behind the menu.
     const t = now / 1000
     const at = sample(menuRace.track, t * 160)
     renderer.cam.x = at.p.x; renderer.cam.y = at.p.y
     renderer.cam.zoom = Math.min(window.innerWidth, window.innerHeight) / 700
+    pen.update(dt)
+    pen.draw()
   } else if (screen === 'results' && race) {
     // Keep the world alive behind the results card.
     race.update(dt, input)
@@ -110,7 +165,7 @@ function frame(now: number) {
     renderer.updateCamera(race.player, dt)
   }
   const r = race ?? menuRace
-  renderer.draw({ track: r.track, horses: r.horses, player: r.player, fx, drag: input.drag, maxDrag: input.maxDrag, time: now / 1000, showArrow: screen === 'race' })
+  renderer.draw({ track: r.track, horses: r.horses, player: r.player, fx, drag: input.drag, maxDrag: input.maxDrag, time: now / 1000, showArrow: screen === 'race', items: r.abilities.items })
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
@@ -135,17 +190,58 @@ window.__horse = {
       beepCount: audio.beepCount,
       particles: fx.particles.length,
       flash: fx.flash,
+      save: { ...save, inv: { ...save.inv }, equipped: [...save.equipped] },
+      slots: r?.slots, charges: r ? { ...r.charges } : null,
+      items: r?.abilities.items.map((it) => ({ kind: it.kind, t: it.t, ...('pos' in it ? { x: it.pos.x, y: it.pos.y } : {}), ...('hits' in it ? { hits: it.hits } : {}), ...('vel' in it ? { vx: it.vel.x, vy: it.vel.y } : {}) })),
+      used: r ? { ...r.abilities.used } : null,
+      pen: pen.debug(),
       shake: fx.shake,
       horses: r?.horses.map((h) => ({
         id: h.id, name: h.name, isPlayer: h.isPlayer, x: h.pos.x, y: h.pos.y, heading: h.heading,
         speed: h.fwdSpeed, state: h.state, stun: h.stunTimer, lap: h.lap, progress: h.progress,
         finished: h.finished, place: r.placeOf(h), mode: h.ctrl.mode,
         top: h.topSpeed, topTarget: h.topTarget, boost: h.boostTimer, bounces: h.bounces, z: h.z,
-        exploded: h.timesExploded, kills: h.kills, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
+        exploded: h.timesExploded, kills: h.kills, spinOut: h.spinOutTimer, slow: h.slowTimer, knock: h.knockTimer, noBoost: h.noBoost, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
       })),
     }
   },
   ...(debug ? {
+    /** Wallet / inventory helpers for tests. */
+    grantCoins: (n: number) => { save = loadSave(); save.coins += n; storeSave(save); ui.updateWallet(save); if (screen === 'shop') refreshShop() },
+    grantAbility: (id: AbilityId, n = 1) => {
+      save = loadSave(); save.inv[id] += n; storeSave(save)
+      if (race) { race.charges[id] = (race.charges[id] ?? 0) + n }
+      ui.updateWallet(save); if (screen === 'shop') refreshShop()
+    },
+    equip: (id: AbilityId) => { save = loadSave(); equip(save, id, 0); if (race) { race.slots[0] = id; race.charges[id] = save.inv[id] } ui.updateWallet(save); if (screen === 'shop') refreshShop() },
+    resetSave: () => { localStorage.removeItem('derby.save'); save = loadSave(); ui.updateWallet(save); if (screen === 'shop') refreshShop() },
+    useAbility: (slot = 0) => (race ? race.useSlot(slot) : false),
+    abilityIds: () => ABILITIES.map((a) => a.id),
+    penClick: (i: number) => { const p = pen.debug().horses[i]; return p ? pen.click(p.x, p.y) : -1 },
+    penSpawn: (n: number) => pen.spawn(n),
+    /** Put horse `id` at world x,y (normal state), facing `heading` at `speed`. heading null = along the track. */
+    placeAt: (id: number, x: number, y: number, heading: number | null = null, speed = 0) => {
+      if (!race) return
+      const h = race.horses[id]
+      h.state = 'normal'; h.z = 0; h.recoverTimer = 0; h.boostTimer = 0; h.knockTimer = 0; h.spinOutTimer = 0; h.slowTimer = 0
+      h.pos = { x, y }
+      const L = race.track.length
+      const loc = locate(race.track, h.pos)
+      let ds = loc.s - h.lastS; ds -= Math.round(ds / L) * L
+      h.progress += ds; h.lastS = loc.s; h.trackIdx = loc.i
+      if (heading === null) { const at = sample(race.track, h.lastS); heading = Math.atan2(at.tan.y, at.tan.x) }
+      h.heading = heading
+      h.vel = fromAngle(heading, speed); h.fwdSpeed = speed
+      h.ai.backupTimer = 0
+    },
+    /** Freeze/unfreeze one horse. */
+    freezeOne: (id: number, on: boolean) => { if (race) race.horses[id].frozen = on },
+    /** Point along the track at `ahead` units from the player: world position. */
+    trackPoint: (ahead: number, lat = 0) => {
+      if (!race) return null
+      const at = sample(race.track, race.player.lastS + ahead)
+      return { x: at.p.x + at.nrm.x * lat, y: at.p.y + at.nrm.y * lat, heading: Math.atan2(at.tan.y, at.tan.x) }
+    },
     /** Skip the countdown. */
     go: () => { if (race && race.phase === 'countdown') race.countdown = 0.001 },
     /**

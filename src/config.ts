@@ -112,6 +112,49 @@ export const BOT = {
   botRamAggro: 0.6,
 }
 
+/**
+ * Magic shop abilities. Each purchase adds one charge; a race uses the abilities equipped in the
+ * player's slots (SLOTS of them; 1 for now, more can be sold later).
+ */
+export const SLOTS = 1
+export const ABILITY = {
+  /** Grappling hook: grabs the nearest rival within range, yanks it to you, mini-explodes it. */
+  grappleRange: 1100,
+  grapplePullSpeed: 900,
+  grapplePullSeconds: 0.45,
+  grappleFlySeconds: 0.5,
+  grappleStunSeconds: 1.3,
+  /** Spiked soccer ball: bounces down the track faster than any horse, knocks rivals backwards. */
+  ballSpeedMul: 1.6,
+  ballSeconds: 7,
+  ballRadius: 15,
+  ballKnockSpeed: 330,
+  ballKnockSeconds: 0.8,
+  /** Dangerous roomba: drives along the track sweeping side to side; rivals touching it explode. */
+  roombaSeconds: 6,
+  roombaSpeedMul: 1.25,
+  roombaRadius: 24,
+  /** Banana peel of doom: dropped behind you; whoever steps on it spins out. */
+  bananaSpinSeconds: 2.6,
+  bananaRadius: 20,
+  bananaSeconds: 60,
+  /** You can't slip on your own peel for this long after dropping it. */
+  bananaOwnerGrace: 2,
+  /** Fireball: bounces around the track, passes through horses and slows rivals it touches. */
+  fireballSeconds: 4.6,
+  fireballSpeedMul: 1.35,
+  fireballRadius: 20,
+  fireballSlowSeconds: 3,
+  fireballSlowMul: 0.55,
+}
+
+/** Coins: by finishing place (1st..8th) plus a bonus per rival you blew up. New players start with startCoins. */
+export const COINS = {
+  place: [100, 70, 55, 45, 35, 28, 22, 18],
+  perKill: 10,
+  start: 150,
+}
+
 export const HORSE_NAMES = [
   'Thunder', 'Biscuit', 'Clover', 'Comet', 'Pepper', 'Duchess', 'Ziggy', 'Noodle',
   'Pickles', 'Sir Gallops', 'Buttercup', 'Rocket', 'Waffles', 'Maple', 'Blaze', 'Pudding',
