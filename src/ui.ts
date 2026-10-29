@@ -1,5 +1,5 @@
 import { ABILITIES, abilityDef, type AbilityId, type Save } from './abilities'
-import { HORSE, SLOTS } from './config'
+import { ABILITY, HORSE, SLOTS } from './config'
 import { ordinal, type Race } from './race'
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
@@ -15,7 +15,6 @@ export class UI {
   results = $('screenResults')
   shop = $('screenShop')
   abilityBar = $('abilityBar')
-  private barKey = ''
   countdownEl = $('countdown')
   toastEl = $('toast')
   status = $('status')
@@ -43,7 +42,7 @@ export class UI {
       if (bump) { const chip = el.parentElement!; chip.classList.remove('bump'); void chip.offsetWidth; chip.classList.add('bump') }
     }
     const eq = save.equipped.filter(Boolean) as AbilityId[]
-    $('menuEquippedName').textContent = eq.length ? eq.map((id) => `${abilityDef(id).icon} ${abilityDef(id).name} ×${save.inv[id]}`).join(', ') : 'nothing - visit the Magic Shop'
+    $('menuEquippedName').textContent = eq.length ? eq.map((id) => `${abilityDef(id).icon} ${abilityDef(id).name}`).join(', ') : 'nothing - visit the Magic Shop'
   }
 
   /** Draw the magic shop. */
@@ -57,25 +56,26 @@ export class UI {
       d.className = 'slot-box' + (id ? '' : ' empty')
       d.dataset.slot = String(i)
       d.innerHTML = id
-        ? `<span class="ico">${abilityDef(id).icon}</span><span>Slot ${i + 1}: ${abilityDef(id).name} ×${save.inv[id]}</span>`
+        ? `<span class="ico">${abilityDef(id).icon}</span><span>Slot ${i + 1}: ${abilityDef(id).name} · ${ABILITY.cooldown[id]}s cooldown</span>`
         : `<span class="ico">⬚</span><span>Slot ${i + 1}: empty</span>`
       slots.appendChild(d)
     })
     const list = $('shopList')
     list.innerHTML = ''
     for (const a of ABILITIES) {
-      const owned = save.inv[a.id]
+      const owned = save.owned[a.id]
       const isEq = save.equipped.includes(a.id)
+      const cant = !owned && save.coins < a.price
       const card = document.createElement('div')
-      card.className = 'shop-item' + (isEq ? ' equipped' : '') + (save.coins < a.price ? ' cant' : '') + (flash === a.id ? ' bought' : '')
+      card.className = 'shop-item' + (isEq ? ' equipped' : '') + (owned ? ' owned' : '') + (cant ? ' cant' : '') + (flash === a.id ? ' bought' : '')
       card.dataset.id = a.id
       card.innerHTML = `
-        ${isEq ? '<span class="badge">EQUIPPED</span>' : ''}
-        <div class="top"><span class="ico">${a.icon}</span><div><div class="name">${a.name}</div><div class="owned">Owned: <b class="cnt">${owned}</b></div></div></div>
+        ${isEq ? '<span class="badge">EQUIPPED</span>' : owned ? '<span class="badge own">OWNED</span>' : ''}
+        <div class="top"><span class="ico">${a.icon}</span><div><div class="name">${a.name}</div><div class="owned">⏱ ${ABILITY.cooldown[a.id]}s cooldown</div></div></div>
         <p class="desc">${a.desc}</p>
         <div class="acts">
-          <button class="btn buy" type="button" ${save.coins < a.price ? 'disabled' : ''}>Buy 🪙${a.price}</button>
-          <button class="btn eq" type="button" ${owned > 0 && !isEq ? '' : 'disabled'}>${isEq ? 'Equipped' : 'Equip'}</button>
+          <button class="btn buy${owned ? ' is-owned' : ''}" type="button" ${owned || cant ? 'disabled' : ''}>${owned ? '✔ OWNED' : `Unlock 🪙${a.price}`}</button>
+          <button class="btn eq" type="button" ${owned && !isEq ? '' : 'disabled'}>${isEq ? 'Equipped' : 'Equip'}</button>
         </div>`
       card.querySelector('.buy')!.addEventListener('click', (e) => { e.preventDefault(); onBuy(a.id) })
       card.querySelector('.eq')!.addEventListener('click', (e) => { e.preventDefault(); onEquip(a.id) })
@@ -83,34 +83,41 @@ export class UI {
     }
   }
 
-  /** The in-race ability slot(s): icon + charges, tap to use. */
+  /** The in-race ability slot(s): icon + cooldown sweep, tap to use. */
   updateAbilityBar(race: Race, onUse: (slot: number) => void) {
-    const key = race.slots.map((id) => `${id}:${id ? race.charges[id] ?? 0 : 0}`).join('|')
-    if (key === this.barKey) return
-    const rebuild = this.abilityBar.children.length !== race.slots.length
-    this.barKey = key
-    if (rebuild) {
+    if (this.abilityBar.children.length !== race.slots.length) {
       this.abilityBar.innerHTML = ''
       race.slots.forEach((_, i) => {
         const b = document.createElement('button')
         b.type = 'button'
         b.className = 'ability-slot'
         b.dataset.slot = String(i)
-        b.innerHTML = '<span class="ico"></span><span class="n"></span><span class="key"></span>'
+        b.innerHTML = '<span class="ico"></span><span class="cd"></span><span class="cdn"></span><span class="key"></span>'
         b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); onUse(i) })
         this.abilityBar.appendChild(b)
       })
     }
     race.slots.forEach((id, i) => {
       const b = this.abilityBar.children[i] as HTMLElement
-      const n = id ? race.charges[id] ?? 0 : 0
+      const left = race.cooldowns[i] ?? 0
+      const frac = id ? Math.min(1, left / ABILITY.cooldown[id]) : 0
+      const ready = !!id && left <= 0
       b.classList.toggle('empty', !id)
-      b.classList.toggle('out', !!id && n <= 0)
+      b.classList.toggle('cooling', !!id && !ready)
+      b.classList.toggle('ready', ready)
       b.dataset.ability = id ?? ''
-      b.setAttribute('aria-label', id ? `Use ${abilityDef(id).name} (${n} left)` : 'No ability equipped')
-      b.querySelector('.ico')!.textContent = id ? abilityDef(id).icon : '✨'
-      b.querySelector('.n')!.textContent = id ? String(n) : '–'
-      b.querySelector('.key')!.textContent = i === 0 ? 'E' : String(i + 1)
+      b.style.setProperty('--cd', String(frac))
+      const label = id ? `Use ${abilityDef(id).name}${ready ? '' : ` (ready in ${Math.ceil(left)}s)`}` : 'No ability equipped'
+      if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label)
+      const ico = id ? abilityDef(id).icon : '✨'
+      const icoEl = b.querySelector('.ico')!
+      if (icoEl.textContent !== ico) icoEl.textContent = ico
+      const n = ready || !id ? '' : String(Math.ceil(left))
+      const nEl = b.querySelector('.cdn')!
+      if (nEl.textContent !== n) nEl.textContent = n
+      const k = i === 0 ? 'E' : String(i + 1)
+      const kEl = b.querySelector('.key')!
+      if (kEl.textContent !== k) kEl.textContent = k
     })
   }
 
@@ -121,7 +128,7 @@ export class UI {
     setTimeout(() => b.classList.remove('fired'), 140)
   }
 
-  resetAbilityBar() { this.barKey = ''; this.abilityBar.innerHTML = '' }
+  resetAbilityBar() { this.abilityBar.innerHTML = '' }
 
   updateHud(race: Race) {
     const p = race.player

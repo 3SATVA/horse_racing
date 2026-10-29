@@ -2,7 +2,7 @@ import { CONTROL } from './config'
 
 export interface DragState {
   active: boolean
-  /** Where the drag started (CSS px, may follow the finger if it goes far). */
+  /** Where the drag started (CSS px). Fixed for the whole drag: it never moves. */
   ox: number; oy: number
   /** Current pointer (CSS px). */
   x: number; y: number
@@ -76,16 +76,11 @@ export class Input {
     if (e.pointerId !== this.primaryId) return
     const d = this.drag
     d.x = e.clientX; d.y = e.clientY
-    let dx = d.x - d.ox, dy = d.y - d.oy
-    let l = Math.hypot(dx, dy)
+    const dx = d.x - d.ox, dy = d.y - d.oy
+    const l = Math.hypot(dx, dy)
     this.moved = Math.max(this.moved, l)
-    // Floating stick: if you drag far past full power, the origin follows.
+    // The anchor stays put; pulling past full power just keeps full power (the arrow is clamped when drawn).
     const max = this.maxDrag
-    if (l > max * 1.25) {
-      const k = (l - max * 1.25) / l
-      d.ox += dx * k; d.oy += dy * k
-      dx = d.x - d.ox; dy = d.y - d.oy; l = Math.hypot(dx, dy)
-    }
     d.angle = Math.atan2(dy, dx)
     d.power = Math.max(0, Math.min(1, (l - CONTROL.deadZone) / (max - CONTROL.deadZone)))
   }

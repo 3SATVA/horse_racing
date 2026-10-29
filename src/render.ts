@@ -298,6 +298,24 @@ export class Renderer {
     ctx.strokeText(label, h.pos.x, y)
     ctx.fillStyle = isPlayer ? '#fff36b' : '#ffffff'
     ctx.fillText(label, h.pos.x, y)
+
+    // "🔥 Fireball!" pop-up when a rival uses its ability.
+    if (h.label && h.label.t > 0) {
+      const t = h.label.t, age = 1.8 - t
+      const a = Math.min(1, t / 0.4) * Math.min(1, age / 0.12)
+      const ly = y - 20 - age * 14
+      ctx.save()
+      ctx.globalAlpha = a
+      ctx.font = '800 14px system-ui, sans-serif'
+      ctx.textBaseline = 'middle'
+      const tw = ctx.measureText(h.label.text).width + 16
+      ctx.fillStyle = 'rgba(70,20,120,0.92)'
+      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.roundRect(h.pos.x - tw / 2, ly - 12, tw, 24, 12); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#fff'
+      ctx.fillText(h.label.text, h.pos.x, ly + 1)
+      ctx.restore()
+    }
   }
 
   private drawStun(h: Horse, time: number) {

@@ -58,11 +58,10 @@ function startRace() {
   const laps = Number(params.get('laps')) || RACE.laps
   const rivals = params.has('rivals') ? Number(params.get('rivals')) : -1
   race = new Race(fx, audio, laps, rivals)
-  // Take the equipped abilities (and their charges) into the race.
+  // Take the equipped ability into the race (unlimited uses, on a cooldown).
   save = loadSave()
-  race.slots = [...save.equipped]
-  for (const id of race.slots) if (id) race.charges[id] = save.inv[id]
-  race.onSpend = (id) => { save.inv[id] = Math.max(0, save.inv[id] - 1); storeSave(save) }
+  race.setSlots(save.equipped)
+  if (params.get('botab') === '0') race.botAbilities = false
   rewarded = false
   ui.resetAbilityBar()
   renderer.snapCamera(race.player)
@@ -190,8 +189,9 @@ window.__horse = {
       beepCount: audio.beepCount,
       particles: fx.particles.length,
       flash: fx.flash,
-      save: { ...save, inv: { ...save.inv }, equipped: [...save.equipped] },
-      slots: r?.slots, charges: r ? { ...r.charges } : null,
+      save: { ...save, owned: { ...save.owned }, equipped: [...save.equipped] },
+      drag: { ...input.drag }, maxDrag: input.maxDrag,
+      slots: r?.slots, cooldowns: r ? [...r.cooldowns] : null,
       items: r?.abilities.items.map((it) => ({ kind: it.kind, t: it.t, ...('pos' in it ? { x: it.pos.x, y: it.pos.y } : {}), ...('hits' in it ? { hits: it.hits } : {}), ...('vel' in it ? { vx: it.vel.x, vy: it.vel.y } : {}) })),
       used: r ? { ...r.abilities.used } : null,
       pen: pen.debug(),
@@ -201,19 +201,28 @@ window.__horse = {
         speed: h.fwdSpeed, state: h.state, stun: h.stunTimer, lap: h.lap, progress: h.progress,
         finished: h.finished, place: r.placeOf(h), mode: h.ctrl.mode,
         top: h.topSpeed, topTarget: h.topTarget, boost: h.boostTimer, bounces: h.bounces, z: h.z,
-        exploded: h.timesExploded, kills: h.kills, spinOut: h.spinOutTimer, slow: h.slowTimer, knock: h.knockTimer, noBoost: h.noBoost, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
+        exploded: h.timesExploded, kills: h.kills, spinOut: h.spinOutTimer, slow: h.slowTimer, knock: h.knockTimer, noBoost: h.noBoost, ability: h.ability, abilityCd: h.abilityCd, abilityFirstAt: h.abilityFirstAt, label: h.label ? h.label.text : null, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
       })),
     }
   },
   ...(debug ? {
     /** Wallet / inventory helpers for tests. */
     grantCoins: (n: number) => { save = loadSave(); save.coins += n; storeSave(save); ui.updateWallet(save); if (screen === 'shop') refreshShop() },
-    grantAbility: (id: AbilityId, n = 1) => {
-      save = loadSave(); save.inv[id] += n; storeSave(save)
-      if (race) { race.charges[id] = (race.charges[id] ?? 0) + n }
+    /** Unlock an ability without paying. */
+    grantAbility: (id: AbilityId) => {
+      save = loadSave(); save.owned[id] = true; storeSave(save)
       ui.updateWallet(save); if (screen === 'shop') refreshShop()
     },
-    equip: (id: AbilityId) => { save = loadSave(); equip(save, id, 0); if (race) { race.slots[0] = id; race.charges[id] = save.inv[id] } ui.updateWallet(save); if (screen === 'shop') refreshShop() },
+    equip: (id: AbilityId) => { save = loadSave(); save.owned[id] = true; equip(save, id, 0); if (race) { race.slots[0] = id; race.cooldowns[0] = 0 } ui.updateWallet(save); if (screen === 'shop') refreshShop() },
+    /** Write a raw save (e.g. an old v5 save with charges) for migration tests. */
+    rawSave: (obj: unknown) => { localStorage.setItem('derby.save', JSON.stringify(obj)); save = loadSave(); ui.updateWallet(save) },
+    /** Skip the player's cooldowns. */
+    readyAbility: () => { if (race) race.cooldowns = race.cooldowns.map(() => 0) },
+    /** Give bot `id` ability `ab` (null = none) with its first use `firstAt` s after GO. */
+    botAbility: (id: number, ab: AbilityId | null, firstAt = 0) => { if (!race) return; const h = race.horses[id]; h.ability = ab; h.abilityFirstAt = firstAt; h.abilityCd = 0 },
+    /** Switch bot abilities on/off for the whole race. */
+    canHook: (id: number) => !!race && !!race.abilities.grappleTarget(race.horses[id]),
+    botAbilitiesOn: (on: boolean) => { if (race) race.botAbilities = on },
     resetSave: () => { localStorage.removeItem('derby.save'); save = loadSave(); ui.updateWallet(save); if (screen === 'shop') refreshShop() },
     useAbility: (slot = 0) => (race ? race.useSlot(slot) : false),
     abilityIds: () => ABILITIES.map((a) => a.id),

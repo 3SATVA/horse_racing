@@ -113,8 +113,8 @@ export const BOT = {
 }
 
 /**
- * Magic shop abilities. Each purchase adds one charge; a race uses the abilities equipped in the
- * player's slots (SLOTS of them; 1 for now, more can be sold later).
+ * Magic shop abilities. A purchase unlocks the ability for good; a race uses the abilities equipped
+ * in the player's slots (SLOTS of them; 1 for now, more can be sold later) on a cooldown.
  */
 export const SLOTS = 1
 export const ABILITY = {
@@ -137,7 +137,9 @@ export const ABILITY = {
   /** Banana peel of doom: dropped behind you; whoever steps on it spins out. */
   bananaSpinSeconds: 2.6,
   bananaRadius: 20,
-  bananaSeconds: 60,
+  bananaSeconds: 20,
+  /** At most this many of one horse's peels on the track at once (oldest is removed). */
+  bananaMaxPerOwner: 2,
   /** You can't slip on your own peel for this long after dropping it. */
   bananaOwnerGrace: 2,
   /** Fireball: bounces around the track, passes through horses and slows rivals it touches. */
@@ -146,6 +148,13 @@ export const ABILITY = {
   fireballRadius: 20,
   fireballSlowSeconds: 3,
   fireballSlowMul: 0.55,
+  /** Seconds between uses, per ability (player and bots alike). Stronger = longer. */
+  cooldown: { banana: 8, ball: 10, fireball: 12, grapple: 12, roomba: 15 } as Record<'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball', number>,
+  /** Bots: first use at a random moment this many seconds after GO; then whenever it's ready. */
+  botFirstMin: 5,
+  botFirstMax: 25,
+  /** Bots retry a hook with no target this often (s). */
+  botGrappleRetry: 0.1,
 }
 
 /** Coins: by finishing place (1st..8th) plus a bonus per rival you blew up. New players start with startCoins. */

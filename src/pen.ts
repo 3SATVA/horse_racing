@@ -82,15 +82,15 @@ export class Pen {
     if (best < 0) return -1
     const p = this.horses[best]
     p.hits++
-    p.flash = 0.18
-    p.shake = 0.25
+    p.flash = 0.12
+    p.shake = 0.22
     // Hitting it makes it bolt a bit faster.
     const sp = Math.hypot(p.vx, p.vy)
     const k = Math.min(1.08, 220 / sp)
     p.vx *= k; p.vy *= k
-    for (let i = 0; i < 6; i++) this.bit(p.x, p.y, 'star', rand(60, 160))
+    // Same tiny neutral boop on every click: nothing hints at what the 10th does.
     if (p.hits >= PEN_CLICKS) this.explode(best)
-    else this.audio.bump(0.3 + p.hits / PEN_CLICKS * 0.7)
+    else this.audio.bump(0.35)
     return best
   }
 
@@ -202,45 +202,20 @@ export class Pen {
     // Horses.
     for (const p of [...this.horses].sort((a, b) => a.y - b.y)) {
       ctx.save()
-      let jx = 0, jy = 0
-      if (p.shake > 0) { jx = rand(-1, 1) * p.shake * 16; jy = rand(-1, 1) * p.shake * 16 }
+      // Click feedback: a quick squish-and-spring (no damage marks).
+      const q = p.shake > 0 ? Math.sin((p.shake / 0.22) * Math.PI) * 0.18 : 0
       ctx.fillStyle = 'rgba(0,0,0,0.25)'
       ctx.beginPath(); ctx.ellipse(p.x + 3, p.y + 5, 20, 10, p.h.heading, 0, Math.PI * 2); ctx.fill()
-      ctx.translate(p.x + jx, p.y + jy)
+      ctx.translate(p.x, p.y)
       ctx.rotate(p.h.heading)
-      ctx.scale(SCALE, SCALE)
+      ctx.scale(SCALE * (1 + q), SCALE * (1 - q))
       drawHorseBody(ctx, p.h)
-      // Cracks get worse with every click.
-      if (p.hits > 0) {
-        ctx.strokeStyle = `rgba(30,10,0,${0.4 + p.hits / PEN_CLICKS * 0.5})`
-        ctx.lineWidth = 2
-        for (let k = 0; k < p.hits; k++) {
-          const a = k * 2.4, r0 = 3 + (k % 3) * 3
-          ctx.beginPath()
-          ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0 * 0.5)
-          ctx.lineTo(Math.cos(a) * (r0 + 10), Math.sin(a) * (r0 + 7) * 0.5)
-          ctx.lineTo(Math.cos(a + 0.4) * (r0 + 16), Math.sin(a + 0.4) * (r0 + 10) * 0.5)
-          ctx.stroke()
-        }
-      }
       if (p.flash > 0) {
         ctx.globalCompositeOperation = 'source-atop'
-        ctx.fillStyle = `rgba(255,255,255,${p.flash / 0.18 * 0.8})`
+        ctx.fillStyle = `rgba(255,255,255,${p.flash / 0.12 * 0.45})`
         ctx.fillRect(-40, -25, 80, 50)
       }
       ctx.restore()
-      if (p.hits > 0) {
-        // n/10 counter bubble, turning red as it gets close.
-        const danger = p.hits / PEN_CLICKS
-        const label = `${p.hits}/${PEN_CLICKS}`
-        ctx.font = 'bold 12px system-ui, sans-serif'
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        const bw = ctx.measureText(label).width + 12
-        const by = Math.max(10, p.y - 28)
-        ctx.fillStyle = `rgb(${Math.round(60 + 195 * danger)},${Math.round(160 - 120 * danger)},40)`
-        roundRect(ctx, p.x - bw / 2, by - 9, bw, 18, 9); ctx.fill()
-        ctx.fillStyle = '#fff'; ctx.fillText(label, p.x, by + 0.5)
-      }
     }
     // Explosion bits.
     for (const b of this.bits) {

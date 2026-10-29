@@ -104,7 +104,6 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 5px; border-radius: 5
 .menu-panel { gap: 10px; }
 .pen-wrap { position: relative; }
 #pen { display: block; width: 100%; height: 200px; border-radius: 16px; touch-action: none; cursor: crosshair; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.2), 0 6px 18px rgba(0,0,0,0.35); }
-.pen-hint { position: absolute; right: 10px; bottom: 8px; font-size: 11px; font-weight: 800; color: #3a2208; background: rgba(255,236,190,0.8); padding: 2px 8px; border-radius: 8px; pointer-events: none; }
 .btn.play { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 14px;
   background: linear-gradient(180deg, #ff6a4d 0%, #e8343a 55%, #b81d2a 100%); box-shadow: 0 8px 0 #7a1016, 0 12px 24px rgba(232,52,58,0.45), inset 0 2px 0 rgba(255,255,255,0.45);
   transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s; animation: playPulse 1.8s ease-in-out infinite; }
@@ -154,9 +153,19 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 5px; border-radius: 5
 .ability-bar { position: absolute; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; gap: 10px; pointer-events: auto; }
 .ability-slot { position: relative; width: 74px; height: 74px; border-radius: 20px; border: 3px solid #e6c3ff; background: radial-gradient(circle at 40% 30%, rgba(192,75,255,0.85), rgba(42,15,77,0.9)); color: #fff; box-shadow: 0 5px 0 #3e1585, 0 0 18px rgba(192,75,255,0.5); display: grid; place-items: center; touch-action: none; }
 .ability-slot .ico { font-size: 36px; line-height: 1; }
-.ability-slot .n { position: absolute; right: -6px; top: -6px; min-width: 26px; height: 26px; border-radius: 13px; background: #ffd23f; color: #2b1d00; font-weight: 900; font-size: 14px; display: grid; place-items: center; padding: 0 5px; }
+.ability-slot { --cd: 0; overflow: visible; }
+/* Cooldown: a dark sweep that unwinds clockwise as the ability recharges. */
+.ability-slot .cd { position: absolute; inset: 0; border-radius: 17px; pointer-events: none;
+  background: conic-gradient(rgba(10,4,22,0.78) calc(var(--cd) * 360deg), transparent 0); }
+.ability-slot .cdn { position: absolute; inset: 0; display: grid; place-items: center; font-size: 28px; font-weight: 900; color: #fff; text-shadow: 0 2px 4px #000; pointer-events: none; }
+.ability-slot.cooling { border-color: #8a6aa8; box-shadow: 0 5px 0 #3e1585; }
+.ability-slot.cooling .ico { opacity: 0.55; }
+.ability-slot.ready { animation: slotReady 1.4s ease-in-out infinite; }
+@keyframes slotReady { 50% { box-shadow: 0 5px 0 #3e1585, 0 0 30px rgba(255,210,63,0.85); border-color: #ffd23f; } }
+.shop-item .badge.own { background: #7ee08a; color: #0d3314; }
+.shop-item .acts .btn.buy.is-owned { background: #2f8f43; color: #eaffea; box-shadow: 0 3px 0 #1a5a28; opacity: 1; }
 .ability-slot .key { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); background: #fff; color: #222; border-radius: 6px; font-size: 11px; font-weight: 900; padding: 0 6px; }
-.ability-slot.empty, .ability-slot.out { filter: grayscale(1); opacity: 0.55; }
+.ability-slot.empty { filter: grayscale(1); opacity: 0.55; }
 .ability-slot:active, .ability-slot.fired { transform: translateY(3px) scale(0.95); box-shadow: 0 2px 0 #3e1585, 0 0 30px rgba(255,210,63,0.9); }
 .result-coins { font-weight: 900; color: #ffe27a; font-size: 17px; }
 .result-coins small { display: block; font-weight: 700; font-size: 12px; opacity: 0.8; color: #fff; }

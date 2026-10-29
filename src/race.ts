@@ -1,7 +1,7 @@
-import { AbilitySystem, type AbilityId } from './abilities'
+import { ABILITIES, AbilitySystem, type AbilityId } from './abilities'
 import { setupBot, thinkBot } from './ai'
 import type { Audio } from './audio'
-import { HORSE, HORSE_COLORS, HORSE_NAMES, RACE } from './config'
+import { ABILITY, HORSE, HORSE_COLORS, HORSE_NAMES, RACE } from './config'
 import type { Effects } from './effects'
 import { makeHorse, rollTopSpeed, updateTopSpeed, type Horse } from './horse'
 import type { Input } from './input'
@@ -30,11 +30,15 @@ export class Race {
   toasts: { text: string; t: number }[] = []
   onEvent: (e: PhysEvent) => void = () => {}
   abilities: AbilitySystem
-  /** Abilities equipped for this race (one per slot) and how many charges each has. */
+  /** Abilities equipped for this race (one per slot) and each slot's cooldown left (s). */
   slots: (AbilityId | null)[] = []
-  charges: Partial<Record<AbilityId, number>> = {}
-  /** Called when a charge is spent, so the save can be updated. */
-  onSpend: (id: AbilityId) => void = () => {}
+  cooldowns: number[] = []
+  /** Bots use their random abilities (off with ?botab=0 for tests). */
+  botAbilities = true
+
+  /** Equip the player's slots for this race; all start ready. */
+  setSlots(ids: (AbilityId | null)[]) { this.slots = [...ids]; this.cooldowns = ids.map(() => 0) }
+  cooldownOf(id: AbilityId) { return ABILITY.cooldown[id] }
 
   constructor(public fx: Effects, public audio: Audio, laps = RACE.laps, rivals = -1) {
     this.laps = laps
@@ -53,6 +57,25 @@ export class Race {
     })
     this.placeOnGrid()
     this.abilities = new AbilitySystem(this.track, this.horses, this.player)
+    // Every bot gets a random ability, first used 5-25s after GO.
+    for (const h of this.horses) {
+      if (h.isPlayer) continue
+      h.ability = ABILITIES[randInt(0, ABILITIES.length - 1)].id
+      h.abilityFirstAt = rand(ABILITY.botFirstMin, ABILITY.botFirstMax)
+      h.abilityCd = 0
+    }
+  }
+
+  /** Bots fire their ability the moment it's ready; a hook with no target retries shortly. */
+  private botAbilities_(dt: number) {
+    for (const h of this.horses) {
+      if (h.isPlayer || !h.ability || h.finished || h.frozen) continue
+      if (this.time < h.abilityFirstAt) continue
+      if (h.abilityCd > 0) { h.abilityCd = Math.max(0, h.abilityCd - dt); continue }
+      if (h.state !== 'normal') continue
+      if (this.abilities.use(h.ability, h, true)) h.abilityCd = ABILITY.cooldown[h.ability]
+      else if (h.ability === 'grapple') h.abilityCd = ABILITY.botGrappleRetry
+    }
   }
 
   private placeOnGrid() {
@@ -94,20 +117,20 @@ export class Race {
 
   toast(text: string, t = 1.6) { this.toasts.push({ text, t }) }
 
-  /** Fire the ability in slot `i`. Uses one charge if it worked. */
+  /** Fire the ability in slot `i` if it's off cooldown. A hook with no target doesn't start the cooldown. */
   useSlot(i: number): boolean {
     const id = this.slots[i]
     if (!id || this.phase !== 'racing' || this.player.finished) return false
-    if ((this.charges[id] ?? 0) <= 0) { this.toast('No charges left - visit the Magic Shop!'); return false }
+    if ((this.cooldowns[i] ?? 0) > 0) return false
     if (!this.abilities.use(id)) { this.flushNotices(); return false }
-    this.charges[id] = (this.charges[id] ?? 0) - 1
-    this.onSpend(id)
+    this.cooldowns[i] = ABILITY.cooldown[id]
     this.flushNotices()
     return true
   }
 
   private flushNotices() {
     for (const n of this.abilities.notices) {
+      if (!n.player) continue
       if (n.text) this.toast(n.text, 1.5)
       if (n.sound === 'zap') this.audio.zap()
       else if (n.sound === 'boing') this.audio.boing()
@@ -169,7 +192,12 @@ export class Race {
     const events: PhysEvent[] = []
     for (const h of this.horses) events.push(...stepHorse(h, this.track, dt, frozen))
     if (!frozen) events.push(...collide(this.horses, this.track, this.time > RACE.startGrace))
-    if (!frozen) events.push(...this.abilities.update(dt))
+    if (!frozen) {
+      this.cooldowns = this.cooldowns.map((c) => Math.max(0, c - dt))
+      if (this.botAbilities) this.botAbilities_(dt)
+      events.push(...this.abilities.update(dt))
+    }
+    for (const h of this.horses) if (h.label && (h.label.t -= dt) <= 0) h.label = null
     for (const e of events) this.handle(e)
     this.flushNotices()
     for (const it of this.abilities.items) {

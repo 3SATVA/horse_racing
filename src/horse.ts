@@ -83,6 +83,12 @@ export interface Horse {
   stunLen: number
   /** Skip the catch-up boost after the next stun. */
   noBoost: boolean
+  /** Bot ability for this race (the player's lives in Race.slots), its cooldown and first-use time. */
+  ability: import('./abilities').AbilityId | null
+  abilityCd: number
+  abilityFirstAt: number
+  /** Floating "used X!" label over the horse. */
+  label: { text: string; t: number } | null
 }
 
 export function makeHorse(id: number, name: string, colors: Horse['colors'], isPlayer: boolean): Horse {
@@ -98,7 +104,7 @@ export function makeHorse(id: number, name: string, colors: Horse['colors'], isP
     gait: Math.random() * 10,
     ai: { lane: 0, laneTimer: 0, stuckTimer: 0, backupTimer: 0, aggression: 0, skill: 1, targetId: -1, ramCooldown: 0, hunting: 0, huntCooldown: rand(4, 10), huntsStarted: 0 },
     surge: 0, timesExploded: 0, kills: 0,
-    spinOutTimer: 0, spinTurn: 0, slowTimer: 0, knockTimer: 0, flyLen: 0, stunLen: 0, noBoost: false,
+    spinOutTimer: 0, spinTurn: 0, slowTimer: 0, knockTimer: 0, flyLen: 0, stunLen: 0, noBoost: false, ability: null, abilityCd: 0, abilityFirstAt: 0, label: null,
   }
 }
 
