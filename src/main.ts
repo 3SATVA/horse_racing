@@ -1,8 +1,10 @@
 import { ABILITIES, buy, equip, loadSave, raceReward, storeSave, type AbilityId } from './abilities'
 import { Audio } from './audio'
-import { HORSE, RACE } from './config'
+import { ABILITY, HORSE, RACE, TRACK } from './config'
+import { STEPS, TUTORIAL_KEY, TUTORIAL_VERSION, Tutorial, markSeen, seenVersion, stepsFor, type TutCtx } from './tutorial'
 import { Effects } from './effects'
 import { Input } from './input'
+import { slowMul } from './horse'
 import { Pen } from './pen'
 import { fromAngle, wrapAngle } from './math'
 import { Race } from './race'
@@ -70,14 +72,137 @@ function startRace() {
 }
 
 function toMenu() {
+  closeTutorial()
   race = null
   fx.clear()
   menuRace = new Race(fx, audio)
   setScreen('menu')
 }
 
-ui.on('btnPlay', startRace)
-ui.on('btnShopPlay', startRace)
+// ---- Tutorial ------------------------------------------------------------
+// The steps live in tutorial.ts. First PLAY ever = the full tutorial; after an update that added
+// steps (TUTORIAL_VERSION went up) = a short "What's new". ?debug turns the automatic one off
+// (so tests are not interrupted) unless &tutorial (full) or &tutorial=new is given.
+const mobile = matchMedia('(pointer: coarse)').matches
+let tut: Tutorial | null = null
+let tutFromPlay = false
+let tutForce = params.has('tutorial') ? (params.get('tutorial') === 'new' ? 'new' : 'full') : ''
+const tutEl = document.getElementById('tutorial') as HTMLElement
+const tutTitle = document.getElementById('tutTitle') as HTMLElement
+const tutText = document.getElementById('tutText') as HTMLElement
+const tutCount = document.getElementById('tutCount') as HTMLElement
+const tutBadge = document.getElementById('tutBadge') as HTMLElement
+const tutNext = document.getElementById('tutNext') as HTMLButtonElement
+const appEl = document.getElementById('app') as HTMLElement
+
+function tutCtx(): TutCtx {
+  return {
+    race, save, mobile, t: tut?.t ?? 0, data: tut?.data ?? {},
+    grant: (n) => { save = loadSave(); save.coins += n; storeSave(save); ui.updateWallet(save, true); refreshShop(); audio.coin() },
+  }
+}
+
+/** A short, wide, 1-lap practice race: no countdown, no rival abilities, two standing dummies. */
+function startPractice() {
+  audio.unlock()
+  fx.clear()
+  race = new Race(fx, audio, 1, 2, { kind: 'hull', halfWidth: TRACK.maxHalfWidth })
+  save = loadSave()
+  race.setSlots(save.equipped)
+  race.botAbilities = false
+  race.tutorial = true
+  race.countdown = 0.001
+  race.horses.filter((h) => !h.isPlayer).forEach((h, k) => { h.dummy = true; race!.placeAhead(h, -900 - k * 500, k ? 40 : -40) })
+  rewarded = true // practice pays nothing
+  ui.resetAbilityBar()
+  renderer.snapCamera(race.player)
+  doneTimer = 0
+  setScreen('race')
+}
+
+function startTutorial(mode: 'full' | 'new', fromPlay: boolean) {
+  audio.unlock()
+  const seen = mode === 'full' ? 0 : Math.max(1, Math.min(seenVersion(), TUTORIAL_VERSION - 1))
+  tut = new Tutorial(stepsFor(seen), mode === 'new')
+  tutFromPlay = fromPlay
+  tutBadge.textContent = tut.whatsNew ? "WHAT'S NEW" : 'TUTORIAL'
+  tutEl.hidden = false
+  nextTutStep()
+}
+
+function nextTutStep() {
+  if (!tut) return
+  const st = tut.advance()
+  if (!st) { endTutorial(true); return }
+  if (st.where === 'race' && (screen !== 'race' || !race?.tutorial || race.player.finished)) startPractice()
+  if (st.where === 'shop' && screen !== 'shop') setScreen('shop')
+  appEl.dataset.tut = st.where === 'shop' ? 'shop' : st.where
+  appEl.dataset.tutstep = st.id
+  st.setup?.(tutCtx())
+  tutCount.textContent = `${tut.i + 1}/${tut.steps.length}`
+  tutTitle.textContent = st.title
+  renderTutText(true)
+  audio.chime()
+}
+
+let tutHtml = ''
+function renderTutText(force = false) {
+  const st = tut?.step
+  if (!st) return
+  const c = tutCtx()
+  const html = typeof st.text === 'function' ? st.text(c) : st.text
+  if (force || html !== tutHtml) { tutText.innerHTML = html; tutHtml = html }
+  const showNext = !st.done || !!st.canNext?.(c)
+  tutNext.hidden = !showNext
+  tutNext.textContent = st.next ?? 'Next'
+}
+
+/** Completed or skipped: remember it and carry on (to the real race if they came from PLAY). */
+function endTutorial(completed: boolean) {
+  if (!tut) return
+  markSeen()
+  tut = null
+  tutEl.hidden = true
+  delete appEl.dataset.tut
+  delete appEl.dataset.tutstep
+  if (completed || tutFromPlay) startRace()
+  else toMenu()
+}
+
+/** Leaving to the menu mid-tutorial (pause → Menu) just closes it; it will show again next PLAY. */
+function closeTutorial() {
+  tut = null
+  tutEl.hidden = true
+  delete appEl.dataset.tut
+  delete appEl.dataset.tutstep
+}
+
+function tutFrame(dt: number) {
+  if (!tut?.step) return
+  if (screen === 'pause' || screen === 'results') return
+  tut.t += dt
+  const c = tutCtx()
+  tut.step.tick?.(c)
+  if (tut.step.done?.(c)) { nextTutStep(); return }
+  renderTutText()
+}
+
+ui.on('tutNext', () => { if (tut?.step) nextTutStep() })
+ui.on('tutSkip', () => endTutorial(false))
+ui.on('btnTutorial', () => startTutorial('full', false))
+
+function play() {
+  if (tutForce) { const m = tutForce as 'full' | 'new'; tutForce = ''; startTutorial(m, true); return }
+  if (!debug) {
+    const seen = seenVersion()
+    if (seen === 0) { startTutorial('full', true); return }
+    if (seen < TUTORIAL_VERSION) { startTutorial('new', true); return }
+  }
+  startRace()
+}
+
+ui.on('btnPlay', play)
+ui.on('btnShopPlay', play)
 ui.on('btnShop', () => { audio.unlock(); setScreen('shop') })
 ui.on('menuEquipped', () => { audio.unlock(); setScreen('shop') })
 ui.on('btnShopBack', () => setScreen('menu'))
@@ -134,6 +259,10 @@ function frame(now: number) {
   if (screen === 'race' && race) {
     // Fixed small sub-steps keep fast collisions reliable.
     const steps = Math.ceil(dt / (1 / 120))
+    // Papaya aim: the next tap/click on the track is the throw target.
+    input.aimMode = race.aiming >= 0
+    for (const t of input.takeAimTaps()) if (race.aiming >= 0) race.throwAt(renderer.toWorld(t.x, t.y))
+    if (race.aiming < 0) input.takeAimTaps()
     for (let i = 0; i < steps; i++) race.update(dt / steps, input)
     fx.update(dt)
     renderer.updateCamera(race.player, dt)
@@ -142,7 +271,9 @@ function frame(now: number) {
       renderer.cam.x = (b.minX + b.maxX) / 2; renderer.cam.y = (b.minY + b.maxY) / 2
       renderer.cam.zoom = Math.min(window.innerWidth / (b.maxX - b.minX + 200), window.innerHeight / (b.maxY - b.minY + 200))
     }
-    if (race.winner) {
+    if (race.winner && race.tutorial) {
+      // Practice race: no results screen; the tutorial moves on.
+    } else if (race.winner) {
       doneTimer += dt
       // You win: a short victory lap. A bot wins: straight to the "You lose" screen.
       if (!race.winner.isPlayer || doneTimer > RACE.finishLinger) { finishRace(race); screen = 'results'; input.enabled = false }
@@ -163,8 +294,11 @@ function frame(now: number) {
     fx.update(dt)
     renderer.updateCamera(race.player, dt)
   }
+  tutFrame(dt)
   const r = race ?? menuRace
-  renderer.draw({ track: r.track, horses: r.horses, player: r.player, fx, drag: input.drag, maxDrag: input.maxDrag, time: now / 1000, showArrow: screen === 'race', items: r.abilities.items })
+  const aiming = screen === 'race' && !!race && race.aiming >= 0
+  const aim = aiming ? { range: ABILITY.papayaRange, radius: ABILITY.papayaRadius, at: input.hover ? r.abilities.clampThrow(r.player, renderer.toWorld(input.hover.x, input.hover.y)) : null } : null
+  renderer.draw({ aim, track: r.track, horses: r.horses, player: r.player, fx, drag: input.drag, maxDrag: input.maxDrag, time: now / 1000, showArrow: screen === 'race', items: r.abilities.items })
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
@@ -191,17 +325,21 @@ window.__horse = {
       flash: fx.flash,
       save: { ...save, owned: { ...save.owned }, equipped: [...save.equipped] },
       drag: { ...input.drag }, maxDrag: input.maxDrag,
-      slots: r?.slots, cooldowns: r ? [...r.cooldowns] : null,
-      items: r?.abilities.items.map((it) => ({ kind: it.kind, t: it.t, ...('pos' in it ? { x: it.pos.x, y: it.pos.y } : {}), ...('hits' in it ? { hits: it.hits } : {}), ...('vel' in it ? { vx: it.vel.x, vy: it.vel.y } : {}) })),
+      slots: r?.slots, cooldowns: r ? [...r.cooldowns] : null, aiming: r ? r.aiming : -1, grappleRange: ABILITY.grappleRange, aimMode: input.aimMode,
+      cam: { ...renderer.cam }, view: { w: window.innerWidth, h: window.innerHeight },
+      items: r?.abilities.items.map((it) => ({ kind: it.kind, owner: it.owner, t: it.t, ...('pos' in it ? { x: it.pos.x, y: it.pos.y } : {}), ...(it.kind === 'hook' ? { target: it.target, done: it.done, result: it.result } : {}), ...('to' in it ? { tx: it.to.x, ty: it.to.y, done: it.done } : {}), ...('pts' in it ? { pts: it.pts.map((q) => [q.x, q.y]) } : {}), ...('hits' in it ? { hits: it.hits } : {}), ...('vel' in it ? { vx: it.vel.x, vy: it.vel.y } : {}) })),
       used: r ? { ...r.abilities.used } : null,
       pen: pen.debug(),
+      tutorial: tut ? { step: tut.step?.id ?? null, index: tut.i, count: tut.steps.length, whatsNew: tut.whatsNew, ids: tut.steps.map((x) => x.id), next: !tutNext.hidden } : null,
+      tutorialSeen: Number(localStorage.getItem(TUTORIAL_KEY)) || 0, tutorialVersion: TUTORIAL_VERSION, tutorialAll: STEPS.map((x) => ({ id: x.id, since: x.since })),
+      practice: !!r?.tutorial,
       shake: fx.shake,
       horses: r?.horses.map((h) => ({
         id: h.id, name: h.name, isPlayer: h.isPlayer, x: h.pos.x, y: h.pos.y, heading: h.heading,
         speed: h.fwdSpeed, state: h.state, stun: h.stunTimer, lap: h.lap, progress: h.progress,
         finished: h.finished, place: r.placeOf(h), mode: h.ctrl.mode,
         top: h.topSpeed, topTarget: h.topTarget, boost: h.boostTimer, bounces: h.bounces, z: h.z,
-        exploded: h.timesExploded, kills: h.kills, spinOut: h.spinOutTimer, slow: h.slowTimer, knock: h.knockTimer, noBoost: h.noBoost, ability: h.ability, abilityCd: h.abilityCd, abilityFirstAt: h.abilityFirstAt, label: h.label ? h.label.text : null, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
+        dummy: h.dummy, exploded: h.timesExploded, kills: h.kills, spinOut: h.spinOutTimer, slow: h.slowTimer, empSlow: h.empSlowTimer, hay: [...h.haySlow], zap: h.zapTimer, knock: h.knockTimer, noBoost: h.noBoost, ability: h.ability, abilityCd: h.abilityCd, abilityFirstAt: h.abilityFirstAt, label: h.label ? h.label.text : null, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
       })),
     }
   },
@@ -220,8 +358,15 @@ window.__horse = {
     readyAbility: () => { if (race) race.cooldowns = race.cooldowns.map(() => 0) },
     /** Give bot `id` ability `ab` (null = none) with its first use `firstAt` s after GO. */
     botAbility: (id: number, ab: AbilityId | null, firstAt = 0) => { if (!race) return; const h = race.horses[id]; h.ability = ab; h.abilityFirstAt = firstAt; h.abilityCd = 0 },
-    /** Switch bot abilities on/off for the whole race. */
+    /** Screen point of a world point (tests: click on the track). */
+    toScreen: (x: number, y: number) => renderer.toScreen(x, y),
+    /** Is the straight line between two horses on the track (hook line of sight)? */
+    lineOnTrack: (a: number, b: number) => !!race && race.abilities.lineOnTrack(race.horses[a], race.horses[b]),
+    /** Bot `id`: is there a papaya target? */
+    papayaTarget: (id: number) => (race ? race.abilities.papayaTarget(race.horses[id]) : null),
+    speedMul: (id: number) => (race ? slowMul(race.horses[id]) : 1),
     canHook: (id: number) => !!race && !!race.abilities.grappleTarget(race.horses[id]),
+    /** Switch bot abilities on/off for the whole race. */
     botAbilitiesOn: (on: boolean) => { if (race) race.botAbilities = on },
     resetSave: () => { localStorage.removeItem('derby.save'); save = loadSave(); ui.updateWallet(save); if (screen === 'shop') refreshShop() },
     useAbility: (slot = 0) => (race ? race.useSlot(slot) : false),
@@ -232,7 +377,7 @@ window.__horse = {
     placeAt: (id: number, x: number, y: number, heading: number | null = null, speed = 0) => {
       if (!race) return
       const h = race.horses[id]
-      h.state = 'normal'; h.z = 0; h.recoverTimer = 0; h.boostTimer = 0; h.knockTimer = 0; h.spinOutTimer = 0; h.slowTimer = 0
+      h.state = 'normal'; h.z = 0; h.recoverTimer = 0; h.boostTimer = 0; h.knockTimer = 0; h.spinOutTimer = 0; h.slowTimer = 0; h.empSlowTimer = 0; h.haySlow = [0, 0, 0]
       h.pos = { x, y }
       const L = race.track.length
       const loc = locate(race.track, h.pos)
@@ -243,6 +388,8 @@ window.__horse = {
       h.vel = fromAngle(heading, speed); h.fwdSpeed = speed
       h.ai.backupTimer = 0
     },
+    /** Stun horse `id` for `s` seconds (tests: interrupt a grapple pull). */
+    stun: (id: number, s = 1) => { if (!race) return; const h = race.horses[id]; h.state = 'stunned'; h.stunTimer = s; h.stunLen = s; h.vel = { x: 0, y: 0 }; h.fwdSpeed = 0 },
     /** Freeze/unfreeze one horse. */
     freezeOne: (id: number, on: boolean) => { if (race) race.horses[id].frozen = on },
     /** Point along the track at `ahead` units from the player: world position. */
@@ -251,6 +398,9 @@ window.__horse = {
       const at = sample(race.track, race.player.lastS + ahead)
       return { x: at.p.x + at.nrm.x * lat, y: at.p.y + at.nrm.y * lat, heading: Math.atan2(at.tan.y, at.tan.x) }
     },
+    /** Tutorial: start one ('full' | 'new'), or set the stored seen version (0 = never). */
+    tutorialStart: (mode: 'full' | 'new' = 'full') => startTutorial(mode, true),
+    setTutorialSeen: (v: number) => { if (v > 0) localStorage.setItem(TUTORIAL_KEY, String(v)); else localStorage.removeItem(TUTORIAL_KEY) },
     /** Skip the countdown. */
     go: () => { if (race && race.phase === 'countdown') race.countdown = 0.001 },
     /**

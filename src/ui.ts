@@ -104,7 +104,8 @@ export class UI {
       const ready = !!id && left <= 0
       b.classList.toggle('empty', !id)
       b.classList.toggle('cooling', !!id && !ready)
-      b.classList.toggle('ready', ready)
+      b.classList.toggle('ready', ready && race.aiming !== i)
+      b.classList.toggle('aiming', race.aiming === i)
       b.dataset.ability = id ?? ''
       b.style.setProperty('--cd', String(frac))
       const label = id ? `Use ${abilityDef(id).name}${ready ? '' : ` (ready in ${Math.ceil(left)}s)`}` : 'No ability equipped'

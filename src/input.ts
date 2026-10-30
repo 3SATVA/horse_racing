@@ -26,6 +26,11 @@ export class Input {
   private moved = 0
   private reverseTaps = 0
   enabled = false
+  /** Papaya aim mode: the next tap/click (any finger) is an aim point, not a drag or reverse. */
+  aimMode = false
+  private aimTaps: { x: number; y: number }[] = []
+  /** Last mouse position over the game (for the aim reticle). Null on touch. */
+  hover: { x: number; y: number } | null = null
   /** Increments each time a new primary drag starts. */
   dragStarts = 0
   /** Called on any pointer/key gesture (used to unlock audio). */
@@ -58,6 +63,7 @@ export class Input {
     this.onGesture()
     if (!this.enabled) return
     e.preventDefault()
+    if (this.aimMode && !(e.pointerType === 'mouse' && e.button === 2)) { this.aimTaps.push({ x: e.clientX, y: e.clientY }); return }
     if (e.pointerType === 'mouse' && e.button === 2) { this.reverseTaps++; return }
     if (this.primaryId !== null) {
       // A second finger while steering = quick stop / reverse.
@@ -73,6 +79,7 @@ export class Input {
   }
 
   private move(e: PointerEvent) {
+    if (e.pointerType === 'mouse') this.hover = { x: e.clientX, y: e.clientY }
     if (e.pointerId !== this.primaryId) return
     const d = this.drag
     d.x = e.clientX; d.y = e.clientY
@@ -98,6 +105,8 @@ export class Input {
     this.drag.power = 0
   }
 
+  takeAimTaps() { const t = this.aimTaps; this.aimTaps = []; return t }
+
   /** Number of reverse taps since last call. */
   takeReverseTaps(): number { const n = this.reverseTaps; this.reverseTaps = 0; return n }
 
@@ -106,5 +115,5 @@ export class Input {
   get left() { return this.keys.has('a') || this.keys.has('arrowleft') }
   get right() { return this.keys.has('d') || this.keys.has('arrowright') }
 
-  reset() { this.keys.clear(); this.endDrag(); this.reverseTaps = 0 }
+  reset() { this.keys.clear(); this.endDrag(); this.reverseTaps = 0; this.aimTaps = []; this.aimMode = false }
 }

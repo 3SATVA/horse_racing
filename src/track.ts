@@ -301,14 +301,15 @@ function startOnStraight(pts: Vec[]): Vec[] {
   return pts.slice(best).concat(pts.slice(0, best))
 }
 
-export function generateTrack(): Track {
-  const W = Math.round(rand(TRACK.minHalfWidth, TRACK.maxHalfWidth))
+/** `opts.kind` / `opts.halfWidth` force a style and width (the tutorial uses a wide, simple oval-ish track). */
+export function generateTrack(opts: { kind?: TrackKind; halfWidth?: number } = {}): Track {
+  const W = Math.round(opts.halfWidth ?? rand(TRACK.minHalfWidth, TRACK.maxHalfWidth))
   const kinds: TrackKind[] = ['blob', 'hull', 'blocks']
   let pts: Vec[] | null = null
-  let kind: TrackKind = kinds[randInt(0, 2)]
+  let kind: TrackKind = opts.kind ?? kinds[randInt(0, 2)]
   // Stick with the chosen style for a while so every style shows up evenly.
   for (let tries = 0; tries < 300 && !pts; tries++) {
-    if (tries > 0 && tries % 100 === 0) kind = kinds[randInt(0, 2)]
+    if (tries > 0 && tries % 100 === 0 && !opts.kind) kind = kinds[randInt(0, 2)]
     pts = attempt(kind, W)
   }
   if (!pts) {

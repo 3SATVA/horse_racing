@@ -4,16 +4,19 @@ import { dot, fromAngle, rand, type Vec } from './math'
 import { blast, type PhysEvent } from './physics'
 import { locate, sample, type Track } from './track'
 
-export type AbilityId = 'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball'
+export type AbilityId = 'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya'
 
 export interface AbilityDef { id: AbilityId; name: string; icon: string; price: number; desc: string }
 
 export const ABILITIES: AbilityDef[] = [
-  { id: 'grapple', name: 'Grappling Hook', icon: '🪝', price: 140, desc: 'Hooks the nearest rival, yanks them to you and gives them a mini explosion: a short stun and no catch-up boost.' },
+  { id: 'grapple', name: 'Grappling Hook', icon: '🪝', price: 140, desc: 'Hooks the nearest rival within range and reels them in. Only if they reach you do they get a mini explosion: a short stun and no catch-up boost.' },
   { id: 'ball', name: 'Spiked Soccer Ball', icon: '⚽', price: 90, desc: 'Bounces down the track faster than any horse. Rivals it hits get knocked backwards.' },
   { id: 'roomba', name: 'Dangerous Roomba', icon: '🔪', price: 180, desc: 'A roomba with a knife. Sweeps the track for 6s. Horses pass right through it, and any rival it touches explodes.' },
   { id: 'banana', name: 'Banana Peel of Doom', icon: '🍌', price: 60, desc: 'Drop it behind you. Whoever steps on it spins out of control: they can only pick their speed.' },
-  { id: 'fireball', name: 'Fireball', icon: '🔥', price: 120, desc: 'A fireball that bounces around the track for 4.6s, burning through horses and slowing rivals down.' },
+  { id: 'fireball', name: 'Fireball', icon: '🔥', price: 120, desc: 'A fireball that bounces around the track for 4.6s, burning through horses. Rivals it touches crawl at 35% speed for 3.5s.' },
+  { id: 'emp', name: 'EMP', icon: '⚡', price: 130, desc: 'An electric pulse around you. Every rival inside the ring is stunned for 0.75s, then runs at 0.75x speed for 3s.' },
+  { id: 'hay', name: 'Orbiting Hay', icon: '🌾', price: 110, desc: '3 sharp hay bundles orbit you for 8s. Each one that touches a rival slows it to 0.85x for 3s, and hits stack: all 3 is about 0.61x.' },
+  { id: 'papaya', name: 'Papaya-Bomb', icon: '🥭', price: 200, desc: 'Tap the track to throw it. It lands 2s later and explodes in a big radius: rivals there get a short stun and no catch-up boost.' },
 ]
 export const abilityDef = (id: AbilityId) => ABILITIES.find((a) => a.id === id)!
 
@@ -21,7 +24,7 @@ export const abilityDef = (id: AbilityId) => ABILITIES.find((a) => a.id === id)!
 
 export interface Save { coins: number; owned: Record<AbilityId, boolean>; equipped: (AbilityId | null)[] }
 const KEY = 'derby.save'
-const IDS: AbilityId[] = ['grapple', 'ball', 'roomba', 'banana', 'fireball']
+const IDS: AbilityId[] = ['grapple', 'ball', 'roomba', 'banana', 'fireball', 'emp', 'hay', 'papaya']
 
 export function loadSave(): Save {
   let s: Partial<Save> & { inv?: Partial<Record<AbilityId, number>> } = {}
@@ -67,7 +70,10 @@ export type Item = { owner: number } & (
   | { kind: 'fireball'; pos: Vec; vel: Vec; t: number; life: number; r: number; hitCd: Map<number, number>; hits: number }
   | { kind: 'roomba'; pos: Vec; heading: number; s: number; idx: number; t: number; life: number; r: number; phase: number; hits: number; dir: number }
   | { kind: 'banana'; pos: Vec; t: number; life: number; r: number; heading: number }
-  | { kind: 'hook'; target: number; t: number; life: number; done: boolean })
+  | { kind: 'hook'; target: number; t: number; life: number; done: boolean; /** 'hit' = reached you and exploded, 'broken' = pull interrupted. */ result: '' | 'hit' | 'broken' }
+  | { kind: 'emp'; pos: Vec; t: number; life: number; r: number; hits: number }
+  | { kind: 'hay'; t: number; life: number; phase: number; hit: Set<number>[]; hits: number; pts: Vec[] }
+  | { kind: 'papaya'; from: Vec; to: Vec; pos: Vec; z: number; t: number; life: number; r: number; done: boolean; hits: number })
 
 /** `player`: the player is involved (used it, got hit, or scored), so it's worth a toast + sound. */
 export interface AbilityNotice { text: string; sound?: 'zap' | 'whoosh' | 'boing' | 'sizzle' | 'slip'; player: boolean }
@@ -84,19 +90,59 @@ export class AbilitySystem {
   private rivalsOf(o: number) { return this.horses.filter((h) => h.id !== o && !h.finished) }
   private say(text: string, player: boolean, sound?: AbilityNotice['sound']) { this.notices.push({ text, player, sound }) }
 
-  /** Nearest hookable rival in range of `o`, or null. */
+  /** True if the straight line a -> b stays on the track (doesn't cut across the infield / over a fence). */
+  lineOnTrack(a: Horse, b: Horse): boolean {
+    const d = Math.hypot(b.pos.x - a.pos.x, b.pos.y - a.pos.y)
+    const n = Math.max(1, Math.ceil(d / 25))
+    let idx = a.trackIdx
+    for (let k = 1; k < n; k++) {
+      const q = { x: a.pos.x + (b.pos.x - a.pos.x) * k / n, y: a.pos.y + (b.pos.y - a.pos.y) * k / n }
+      const loc = locate(this.tr, q, idx)
+      if (Math.abs(loc.lat) > this.tr.halfWidth + 4) return false
+      idx = loc.i
+    }
+    return true
+  }
+
+  /** Nearest hookable rival within the hook's straight-line range with a clear line along the track, or null. */
   grappleTarget(o: Horse): Horse | null {
-    let best: Horse | null = null, bd = ABILITY.grappleRange
+    const cands = this.rivalsOf(o.id)
+      .filter((h) => canBeHit(h))
+      .map((h) => ({ h, d: Math.hypot(h.pos.x - o.pos.x, h.pos.y - o.pos.y) }))
+      .filter((c) => c.d <= ABILITY.grappleRange)
+      .sort((x, y) => x.d - y.d)
+    for (const c of cands) if (this.lineOnTrack(o, c.h)) return c.h
+    return null
+  }
+
+  /** Snap a world point onto the racing surface and within throwing range of `o`. */
+  clampThrow(o: Horse, to: Vec): Vec {
+    let x = to.x, y = to.y
+    const dx = x - o.pos.x, dy = y - o.pos.y, d = Math.hypot(dx, dy)
+    if (d > ABILITY.papayaRange) { x = o.pos.x + dx / d * ABILITY.papayaRange; y = o.pos.y + dy / d * ABILITY.papayaRange }
+    const loc = locate(this.tr, { x, y })
+    const lim = this.tr.halfWidth - 12
+    if (Math.abs(loc.lat) > lim) { const l = Math.sign(loc.lat) * lim; x = loc.p.x + loc.nrm.x * l; y = loc.p.y + loc.nrm.y * l }
+    return { x, y }
+  }
+
+  /** Bots: where a rival ahead of `o` (or the player) will be when a papaya lands. Null if nobody is in range. */
+  papayaTarget(o: Horse): Vec | null {
+    let best: Vec | null = null, bd = Infinity
     for (const h of this.rivalsOf(o.id)) {
-      if (!canBeHit(h)) continue
-      const d = Math.hypot(h.pos.x - o.pos.x, h.pos.y - o.pos.y)
-      if (d < bd) { bd = d; best = h }
+      if (!canBeHit(h) || !(h.isPlayer || h.progress > o.progress)) continue
+      const guess = { x: h.pos.x + h.vel.x * ABILITY.papayaFlight, y: h.pos.y + h.vel.y * ABILITY.papayaFlight }
+      const d = Math.hypot(guess.x - o.pos.x, guess.y - o.pos.y)
+      if (d > ABILITY.papayaRange || d < ABILITY.papayaRadius * 0.9) continue // don't bomb yourself
+      const tgt = this.clampThrow(o, guess)
+      if (Math.hypot(tgt.x - o.pos.x, tgt.y - o.pos.y) < ABILITY.papayaRadius * 0.9) continue
+      if (d < bd) { bd = d; best = tgt }
     }
     return best
   }
 
   /** Spawn ability `id` for horse `owner` (the player by default). False if it can't fire right now. */
-  use(id: AbilityId, owner: Horse = this.player, quiet = false): boolean {
+  use(id: AbilityId, owner: Horse = this.player, quiet = false, aim: Vec | null = null): boolean {
     const p = owner
     const me = p.isPlayer
     if (p.state !== 'normal' || p.finished) return false
@@ -109,7 +155,7 @@ export class AbilitySystem {
       case 'grapple': {
         const best = this.grappleTarget(p)
         if (!best) { if (me && !quiet) this.say('No rival in hook range!', true); return false }
-        this.items.push({ owner: p.id, kind: 'hook', target: best.id, t: 0, life: ABILITY.grapplePullSeconds + 0.35, done: false })
+        this.items.push({ owner: p.id, kind: 'hook', target: best.id, t: 0, life: ABILITY.grapplePullSeconds + 0.35, done: false, result: '' })
         this.say(me ? `🪝 Hooked ${best.name}!` : best.isPlayer ? `🪝 ${p.name} hooked you!` : '', me || best.isPlayer, 'zap')
         break
       }
@@ -134,6 +180,34 @@ export class AbilitySystem {
         const at = sample(tr, s)
         this.items.push({ owner: p.id, kind: 'roomba', pos: { ...at.p }, heading: dirA, s, idx: at.i, t: 0, life: ABILITY.roombaSeconds, r: ABILITY.roombaRadius, phase: Math.asin(Math.max(-1, Math.min(1, loc.lat / (tr.halfWidth * 0.6)))) || 0, hits: 0, dir: fwdOnTrack })
         this.say(me ? '🔪 Dangerous roomba deployed!' : '', me, 'whoosh')
+        break
+      }
+      case 'emp': {
+        let n = 0, hitMe = false
+        for (const h of this.rivalsOf(p.id)) {
+          if (!canBeHit(h)) continue
+          if (Math.hypot(h.pos.x - p.pos.x, h.pos.y - p.pos.y) > ABILITY.empRadius) continue
+          h.state = 'stunned'; h.stunTimer = ABILITY.empStunSeconds; h.noBoost = true
+          h.vel = { x: 0, y: 0 }; h.fwdSpeed = 0; h.reverseTimer = 0
+          h.empSlowTimer = ABILITY.empSlowSeconds; h.zapTimer = ABILITY.empStunSeconds + 0.2
+          n++; if (h.isPlayer) hitMe = true
+        }
+        this.items.push({ owner: p.id, kind: 'emp', pos: { ...p.pos }, t: 0, life: 0.6, r: ABILITY.empRadius, hits: n })
+        this.say(me ? (n ? `⚡ EMP! Zapped ${n} rival${n > 1 ? 's' : ''}!` : '⚡ EMP! Nobody in range.') : hitMe ? `⚡ ${p.name}'s EMP zapped you!` : '', me || hitMe, 'zap')
+        break
+      }
+      case 'hay': {
+        const old = this.items.find((it) => it.kind === 'hay' && it.owner === p.id)
+        if (old) old.t = old.life
+        this.items.push({ owner: p.id, kind: 'hay', t: 0, life: ABILITY.haySeconds, phase: rand(0, Math.PI * 2), hit: Array.from({ length: ABILITY.hayBundles }, () => new Set<number>()), hits: 0, pts: [] })
+        this.say(me ? '🌾 Sharp hay is orbiting you!' : '', me, 'whoosh')
+        break
+      }
+      case 'papaya': {
+        const to = aim ? this.clampThrow(p, aim) : this.papayaTarget(p)
+        if (!to) return false
+        this.items.push({ owner: p.id, kind: 'papaya', from: { ...p.pos }, to, pos: { ...p.pos }, z: 0, t: 0, life: ABILITY.papayaFlight + 0.05, r: ABILITY.papayaRadius, done: false, hits: 0 })
+        this.say(me ? '🥭 Papaya-Bomb away!' : '', me, 'whoosh')
         break
       }
       case 'banana': {
@@ -172,20 +246,29 @@ export class AbilitySystem {
       switch (it.kind) {
         case 'hook': {
           const h = this.horses[it.target]
-          if (it.done || h.state !== 'normal') { it.done = true; break }
-          // Reel the rival in toward you.
+          if (it.done) break
           const dx = p.pos.x - h.pos.x, dy = p.pos.y - h.pos.y
           const d = Math.hypot(dx, dy) || 1
-          h.vel = { x: (dx / d) * ABILITY.grapplePullSpeed, y: (dy / d) * ABILITY.grapplePullSpeed }
-          h.fwdSpeed = 0
-          h.knockTimer = Math.max(h.knockTimer, 0.05) // no control while reeled in
-          if (d < 70 || it.t > ABILITY.grapplePullSeconds) {
-            it.done = true
+          // Reached you: now (and only now) it explodes.
+          if (d < ABILITY.grappleContact && h.state === 'normal' && p.state === 'normal') {
+            it.done = true; it.result = 'hit'; it.t = 0
             if (canBeHit(h)) {
               ev.push(...blast(h, p.pos, this.tr, true)); p.kills++
               this.say(p.isPlayer ? `💥 Mini explosion on ${h.name}!` : h.isPlayer ? `💥 ${p.name}'s hook blew you up!` : '', p.isPlayer || h.isPlayer)
             }
+            break
           }
+          // Pull broken: you got stunned/blown up, it got knocked out of the pull, slipped out of range, or timed out.
+          if (p.state !== 'normal' || h.state !== 'normal' || d > ABILITY.grappleRange * ABILITY.grappleBreak || it.t > ABILITY.grapplePullSeconds) {
+            it.done = true; it.result = 'broken'; it.t = 0
+            if (h.state === 'normal') h.knockTimer = 0
+            if (p.isPlayer || h.isPlayer) this.say(p.isPlayer ? `🪝 ${h.name} got away!` : h.isPlayer ? '🪝 You slipped the hook!' : '', true)
+            break
+          }
+          // Reel the rival in toward you.
+          h.vel = { x: (dx / d) * ABILITY.grapplePullSpeed, y: (dy / d) * ABILITY.grapplePullSpeed }
+          h.fwdSpeed = 0
+          h.knockTimer = Math.max(h.knockTimer, 0.05) // no control while reeled in
           break
         }
         case 'ball':
@@ -215,7 +298,7 @@ export class AbilitySystem {
             } else {
               // Pierces straight through; burns and slows.
               h.slowTimer = ABILITY.fireballSlowSeconds
-              h.vel.x *= 0.6; h.vel.y *= 0.6; h.fwdSpeed *= 0.6
+              h.vel.x *= 0.45; h.vel.y *= 0.45; h.fwdSpeed *= 0.45
               this.say(p.isPlayer ? `🔥 ${h.name} is scorched and slowed!` : h.isPlayer ? `🔥 ${p.name}'s fireball scorched you!` : '', p.isPlayer || h.isPlayer, 'sizzle')
             }
           }
@@ -223,7 +306,7 @@ export class AbilitySystem {
         }
         case 'roomba': {
           const dir = it.dir
-          it.s += dir * p.topSpeed * ABILITY.roombaSpeedMul * dt
+          it.s += dir * ABILITY.roombaSpeed * dt
           const at = sample(this.tr, it.s)
           const lat = Math.sin(it.phase + it.t * 2.2) * this.tr.halfWidth * 0.6
           const nx = at.p.x + at.nrm.x * lat, ny = at.p.y + at.nrm.y * lat
@@ -238,6 +321,45 @@ export class AbilitySystem {
             p.kills++
             it.hits++
             this.say(p.isPlayer ? `🔪 The roomba got ${h.name}!` : h.isPlayer ? `🔪 ${p.name}'s roomba got you!` : '', p.isPlayer || h.isPlayer)
+          }
+          break
+        }
+        case 'emp': break
+        case 'hay': {
+          const n = ABILITY.hayBundles
+          it.pts = []
+          for (let k = 0; k < n; k++) {
+            const a = it.phase + it.t * ABILITY.haySpin + k * Math.PI * 2 / n
+            const q = { x: p.pos.x + Math.cos(a) * ABILITY.hayOrbit, y: p.pos.y + Math.sin(a) * ABILITY.hayOrbit }
+            it.pts.push(q)
+            for (const h of this.rivalsOf(it.owner)) {
+              if (h.state !== 'normal' || it.hit[k].has(h.id)) continue
+              if (Math.hypot(h.pos.x - q.x, h.pos.y - q.y) > ABILITY.hayRadius + 17) continue
+              it.hit[k].add(h.id) // this bundle never hits this horse again
+              h.haySlow[k] = ABILITY.haySlowSeconds
+              it.hits++
+              const stack = h.haySlow.filter((t) => t > 0).length
+              this.say(p.isPlayer ? `🌾 ${h.name} got haystabbed${stack > 1 ? ` x${stack}` : ''}!` : h.isPlayer ? `🌾 ${p.name}'s hay got you${stack > 1 ? ` x${stack}` : ''}!` : '', p.isPlayer || h.isPlayer, 'slip')
+            }
+          }
+          break
+        }
+        case 'papaya': {
+          const f = Math.min(1, it.t / ABILITY.papayaFlight)
+          it.pos = { x: it.from.x + (it.to.x - it.from.x) * f, y: it.from.y + (it.to.y - it.from.y) * f }
+          it.z = Math.sin(f * Math.PI) * 160
+          if (f >= 1 && !it.done) {
+            it.done = true
+            ev.push({ type: 'explode', x: it.to.x, y: it.to.y, victim: -1, big: true })
+            let hitMe = false
+            for (const h of this.rivalsOf(it.owner)) {
+              if (!canBeHit(h)) continue
+              if (Math.hypot(h.pos.x - it.to.x, h.pos.y - it.to.y) > it.r) continue
+              ev.push(...blast(h, it.to, this.tr, true, ABILITY.papayaFlySeconds, ABILITY.papayaStunSeconds))
+              p.kills++; it.hits++
+              if (h.isPlayer) hitMe = true
+            }
+            this.say(p.isPlayer ? (it.hits ? `🥭 SPLAT! Papaya got ${it.hits} rival${it.hits > 1 ? 's' : ''}!` : '🥭 Splat! Missed.') : hitMe ? `🥭 ${p.name}'s Papaya-Bomb blew you up!` : '', p.isPlayer || hitMe)
           }
           break
         }
@@ -259,7 +381,7 @@ export class AbilitySystem {
         }
       }
     }
-    this.items = this.items.filter((it) => (it.kind === 'hook' ? !(it.done && it.t > it.life) : it.t < it.life))
+    this.items = this.items.filter((it) => (it.kind === 'hook' ? !(it.done && it.t > 0.6) : it.t < it.life))
     return ev
   }
 }

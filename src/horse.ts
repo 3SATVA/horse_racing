@@ -1,4 +1,4 @@
-import { HORSE } from './config'
+import { ABILITY, HORSE } from './config'
 import { rand, type Vec } from './math'
 
 export type HorseState = 'normal' | 'flying' | 'stunned'
@@ -41,6 +41,8 @@ export interface Horse {
   bounces: number
   /** Debug: hold still. */
   frozen: boolean
+  /** Tutorial practice dummy: stands still (no AI) but can be rammed and blown up like any horse. */
+  dummy: boolean
   ctrl: Control
   state: HorseState
   stunTimer: number
@@ -76,6 +78,12 @@ export interface Horse {
   spinTurn: number
   /** Fireball: slower top speed while > 0. */
   slowTimer: number
+  /** EMP: 0.75x speed while > 0 (only ticks once the EMP stun is over). */
+  empSlowTimer: number
+  /** Orbiting hay: one slow timer per bundle, so hits from different bundles stack. */
+  haySlow: number[]
+  /** EMP zap effect left (visual). */
+  zapTimer: number
   /** Spiked ball: knocked backwards, no control while > 0. */
   knockTimer: number
   /** Next landing uses these instead of the defaults (grapple mini-explosion). 0 = default. */
@@ -96,7 +104,7 @@ export function makeHorse(id: number, name: string, colors: Horse['colors'], isP
     id, name, isPlayer, colors,
     pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, heading: 0, fwdSpeed: 0,
     topSpeed: HORSE.topSpeed, topTarget: HORSE.topSpeed, topTimer: rand(HORSE.topSpeedMinInterval, HORSE.topSpeedMaxInterval),
-    boostTimer: 0, bounces: 0, frozen: false,
+    boostTimer: 0, bounces: 0, frozen: false, dummy: false,
     ctrl: { mode: 'coast', targetSpeed: 0, steer: 0, aim: null },
     state: 'normal', stunTimer: 0, recoverTimer: 0, flyTimer: 0, z: 0, spin: 0, flySide: 1,
     reverseTimer: 0,
@@ -104,7 +112,7 @@ export function makeHorse(id: number, name: string, colors: Horse['colors'], isP
     gait: Math.random() * 10,
     ai: { lane: 0, laneTimer: 0, stuckTimer: 0, backupTimer: 0, aggression: 0, skill: 1, targetId: -1, ramCooldown: 0, hunting: 0, huntCooldown: rand(4, 10), huntsStarted: 0 },
     surge: 0, timesExploded: 0, kills: 0,
-    spinOutTimer: 0, spinTurn: 0, slowTimer: 0, knockTimer: 0, flyLen: 0, stunLen: 0, noBoost: false, ability: null, abilityCd: 0, abilityFirstAt: 0, label: null,
+    spinOutTimer: 0, spinTurn: 0, slowTimer: 0, empSlowTimer: 0, haySlow: [0, 0, 0], zapTimer: 0, knockTimer: 0, flyLen: 0, stunLen: 0, noBoost: false, ability: null, abilityCd: 0, abilityFirstAt: 0, label: null,
   }
 }
 
@@ -122,6 +130,15 @@ export function updateTopSpeed(h: Horse, dt: number) {
   if (h.topTimer <= 0) rollTopSpeed(h)
   const step = 45 * dt
   h.topSpeed = h.topSpeed < h.topTarget ? Math.min(h.topTarget, h.topSpeed + step) : Math.max(h.topTarget, h.topSpeed - step)
+}
+
+/** Every slow at once: fireball, EMP after-slow and each hay bundle, multiplied together. */
+export function slowMul(h: Horse) {
+  let m = 1
+  if (h.slowTimer > 0) m *= ABILITY.fireballSlowMul
+  if (h.empSlowTimer > 0) m *= ABILITY.empSlowMul
+  for (const t of h.haySlow) if (t > 0) m *= ABILITY.haySlowMul
+  return m
 }
 
 export const boostMul = (h: Horse) => (h.boostTimer > 0 ? HORSE.boostSpeedMul : 1) * (1 + h.surge)

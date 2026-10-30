@@ -40,6 +40,19 @@
       <div id="countdown" class="countdown" hidden>3</div>
       <div id="toast" class="toast" hidden></div>
 
+      <div id="tutorial" class="tut" hidden>
+        <div class="tut-card" role="dialog" aria-live="polite">
+          <div class="tut-head">
+            <span id="tutBadge" class="tut-badge">TUTORIAL</span>
+            <span id="tutCount" class="tut-count">1/1</span>
+            <button id="tutSkip" class="tut-skip" type="button">Skip ✕</button>
+          </div>
+          <h3 id="tutTitle"></h3>
+          <p id="tutText"></p>
+          <button id="tutNext" class="btn tut-next" type="button" hidden>Next</button>
+        </div>
+      </div>
+
       <section id="screenMenu" class="screen">
         <div class="panel menu-panel">
           <h1>Derby Dash</h1>
@@ -51,7 +64,10 @@
             <button id="btnShop" class="btn magic" type="button">✨ MAGIC SHOP</button>
             <div class="coin-chip" title="Coins"><span aria-hidden="true">🪙</span> <span class="coins" id="menuCoins">0</span></div>
           </div>
-          <button id="menuEquipped" class="equip-chip" type="button">Equipped: <b id="menuEquippedName">nothing</b></button>
+          <div class="menu-row small">
+            <button id="menuEquipped" class="equip-chip" type="button">Equipped: <b id="menuEquippedName">nothing</b></button>
+            <button id="btnTutorial" class="equip-chip tut-chip" type="button">🎓 Tutorial</button>
+          </div>
           <div class="controls">
             <div>
               <h3>Keyboard</h3>

@@ -6,7 +6,7 @@ import { clamp, type Vec } from './math'
 import { drawHorseBody } from './sprites'
 import type { Track } from './track'
 import type { Item } from './abilities'
-import { drawItems } from './itemArt'
+import { drawAim, drawItems } from './itemArt'
 
 export interface Camera { x: number; y: number; zoom: number }
 
@@ -20,6 +20,8 @@ export interface RenderInput {
   time: number
   showArrow: boolean
   items?: Item[]
+  /** Papaya aim mode: range ring around the player and (mouse) the clamped landing spot. */
+  aim?: { range: number; radius: number; at: Vec | null } | null
 }
 
 interface TrackCache { track: Track; posts: Vec[] }
@@ -54,6 +56,9 @@ export class Renderer {
     const m = Math.min(this.w, this.h)
     return clamp(m / 620, 0.5, 1.35)
   }
+
+  toWorld(sx: number, sy: number): Vec { const z = this.cam.zoom; return { x: this.cam.x + (sx - this.w / 2) / z, y: this.cam.y + (sy - this.h / 2) / z } }
+  toScreen(x: number, y: number): Vec { const z = this.cam.zoom; return { x: (x - this.cam.x) * z + this.w / 2, y: (y - this.cam.y) * z + this.h / 2 } }
 
   snapCamera(p: Horse) {
     this.cam = { x: p.pos.x, y: p.pos.y, zoom: this.baseZoom() }
@@ -118,6 +123,7 @@ export class Renderer {
     for (const p of r.fx.particles) if (p.kind === 'dust' || p.kind === 'boost') this.drawParticle(p)
 
     if (r.items) drawItems(this.ctx, r.items, r.horses, r.player, r.time, true)
+    if (r.aim) drawAim(this.ctx, r.player, r.aim, r.time)
     const sorted = [...r.horses].sort((a, b) => (a.z > 0 ? 1 : 0) - (b.z > 0 ? 1 : 0) || a.pos.y - b.pos.y)
     for (const h of sorted) this.drawHorse(h, h === r.player, r.time)
     if (r.items) drawItems(this.ctx, r.items, r.horses, r.player, r.time, false)
@@ -136,6 +142,17 @@ export class Renderer {
       ctx.fillRect(0, 0, this.w, this.h)
     }
     this.drawOffscreenArrows(r)
+    if (r.aim) {
+      ctx.save()
+      ctx.font = '800 17px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      const txt = '🥭 Tap the track to throw the Papaya-Bomb'
+      const w = ctx.measureText(txt).width + 28, y = Math.min(110, this.h * 0.24)
+      ctx.fillStyle = 'rgba(40,16,0,0.72)'
+      ctx.beginPath(); ctx.roundRect(this.w / 2 - w / 2, y - 17, w, 34, 17); ctx.fill()
+      ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 2; ctx.stroke()
+      ctx.fillStyle = '#fff3d6'; ctx.fillText(txt, this.w / 2, y + 1)
+      ctx.restore()
+    }
     if (r.showArrow && r.drag && r.drag.active) this.drawDragArrow(r.drag, r.maxDrag)
     this.drawMinimap(r)
   }
@@ -234,6 +251,22 @@ export class Renderer {
     const marks: string[] = []
     if (h.spinOutTimer > 0) marks.push('🍌💫')
     if (h.slowTimer > 0) marks.push('🔥🐢')
+    if (h.empSlowTimer > 0 && h.state === 'normal') marks.push('⚡🐢')
+    const hay = h.haySlow.filter((t) => t > 0).length
+    if (hay) marks.push('🌾'.repeat(hay))
+    if (h.zapTimer > 0) {
+      // EMP zap: crackling blue bolts around the horse.
+      ctx.save()
+      ctx.strokeStyle = Math.floor(time * 30) % 2 ? '#7fe8ff' : '#ffffff'; ctx.lineWidth = 2.5
+      ctx.shadowColor = '#40c8ff'; ctx.shadowBlur = 10
+      for (let k = 0; k < 4; k++) {
+        const a0 = Math.random() * Math.PI * 2
+        ctx.beginPath()
+        for (let j = 0; j <= 4; j++) { const a = a0 + j * 0.35, rr = 22 + Math.random() * 14; ctx.lineTo(h.pos.x + Math.cos(a) * rr, h.pos.y + Math.sin(a) * rr) }
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
     if (h.knockTimer > 0.1) marks.push('⚽')
     if (h.slowTimer > 0) {
       ctx.save()

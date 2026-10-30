@@ -118,10 +118,19 @@ export const BOT = {
  */
 export const SLOTS = 1
 export const ABILITY = {
-  /** Grappling hook: grabs the nearest rival within range, yanks it to you, mini-explodes it. */
-  grappleRange: 1100,
+  /**
+   * Grappling hook: latches onto the nearest rival within grappleRange (straight line, clear along the track),
+   * reels it in, and mini-explodes it only once it reaches you (grappleContact). If the pull is broken
+   * (you get stunned, it gets knocked out of the pull, it slips out of range, or the pull times out) nothing explodes.
+   */
+  grappleRange: 650,
   grapplePullSpeed: 900,
-  grapplePullSeconds: 0.45,
+  /** Pull timeout (s): long enough to reel a horse in from the edge of the range. */
+  grapplePullSeconds: 1.2,
+  /** Reeled-in horse explodes when it gets this close to you. */
+  grappleContact: 70,
+  /** The pull breaks if the hooked horse ends up this far away (range × this). */
+  grappleBreak: 1.25,
   grappleFlySeconds: 0.5,
   grappleStunSeconds: 1.3,
   /** Spiked soccer ball: bounces down the track faster than any horse, knocks rivals backwards. */
@@ -131,8 +140,9 @@ export const ABILITY = {
   ballKnockSpeed: 330,
   ballKnockSeconds: 0.8,
   /** Dangerous roomba: drives along the track sweeping side to side; rivals touching it explode. */
-  roombaSeconds: 6,
-  roombaSpeedMul: 1.25,
+  roombaSeconds: 7,
+  /** Fixed travel speed (horse top speed is 430), so the pack can outrun it. */
+  roombaSpeed: 300,
   roombaRadius: 24,
   /** Banana peel of doom: dropped behind you; whoever steps on it spins out. */
   bananaSpinSeconds: 2.6,
@@ -146,15 +156,35 @@ export const ABILITY = {
   fireballSeconds: 4.6,
   fireballSpeedMul: 1.35,
   fireballRadius: 20,
-  fireballSlowSeconds: 3,
-  fireballSlowMul: 0.55,
+  fireballSlowSeconds: 3.5,
+  fireballSlowMul: 0.35,
+  /** EMP: a pulse around the user. Rivals inside are stunned, then slowed once they're back up. */
+  empRadius: 240,
+  empStunSeconds: 0.75,
+  empSlowMul: 0.75,
+  empSlowSeconds: 3,
+  /** Orbiting hay: 3 sharp bundles circle the user. Each bundle slows a rival it touches (once per horse). */
+  haySeconds: 8,
+  hayBundles: 3,
+  hayOrbit: 52,
+  hayRadius: 13,
+  haySpin: 3.4,
+  haySlowMul: 0.85,
+  haySlowSeconds: 3,
+  /** Papaya bomb: thrown at a spot on the track, lands after papayaFlight s and blows up horses in papayaRadius. */
+  papayaFlight: 2,
+  papayaRadius: 170,
+  papayaRange: 950,
+  papayaFlySeconds: 0.55,
+  papayaStunSeconds: 1.8,
   /** Seconds between uses, per ability (player and bots alike). Stronger = longer. */
-  cooldown: { banana: 8, ball: 10, fireball: 12, grapple: 12, roomba: 15 } as Record<'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball', number>,
+  cooldown: { banana: 8, ball: 10, fireball: 12, grapple: 12, roomba: 15, emp: 14, hay: 16, papaya: 16 } as Record<'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya', number>,
   /** Bots: first use at a random moment this many seconds after GO; then whenever it's ready. */
   botFirstMin: 5,
   botFirstMax: 25,
   /** Bots retry a hook with no target this often (s). */
   botGrappleRetry: 0.1,
+  /** Bots throw papayas at a horse ahead (or the player) where it will be when the papaya lands. */
 }
 
 /** Coins: by finishing place (1st..8th) plus a bonus per rival you blew up. New players start with startCoins. */

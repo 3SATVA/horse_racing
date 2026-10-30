@@ -6,8 +6,8 @@ import type { Effects } from './effects'
 import { makeHorse, rollTopSpeed, updateTopSpeed, type Horse } from './horse'
 import type { Input } from './input'
 import { clamp, dist, dot, fromAngle, rand, randInt } from './math'
-import { collide, stepHorse, type PhysEvent } from './physics'
-import { generateTrack, locate, sample, type Track } from './track'
+import { blast, collide, stepHorse, type PhysEvent } from './physics'
+import { generateTrack, locate, sample, type Track, type TrackKind } from './track'
 
 export type Phase = 'countdown' | 'racing' | 'done'
 
@@ -18,6 +18,8 @@ export class Race {
   player: Horse
   phase: Phase = 'countdown'
   countdown = RACE.countdownSeconds
+  /** Tutorial practice race. */
+  tutorial = false
   time = 0
   laps = RACE.laps
   finishCount = 0
@@ -40,9 +42,9 @@ export class Race {
   setSlots(ids: (AbilityId | null)[]) { this.slots = [...ids]; this.cooldowns = ids.map(() => 0) }
   cooldownOf(id: AbilityId) { return ABILITY.cooldown[id] }
 
-  constructor(public fx: Effects, public audio: Audio, laps = RACE.laps, rivals = -1) {
+  constructor(public fx: Effects, public audio: Audio, laps = RACE.laps, rivals = -1, trackOpts: { kind?: TrackKind; halfWidth?: number } = {}) {
     this.laps = laps
-    this.track = generateTrack()
+    this.track = generateTrack(trackOpts)
     const bots = rivals >= RACE.minBots && rivals <= RACE.maxBots ? rivals : randInt(RACE.minBots, RACE.maxBots)
     // Random, unique bot names each race; the player is always 'You'.
     const pool = [...HORSE_NAMES]
@@ -74,7 +76,8 @@ export class Race {
       if (h.abilityCd > 0) { h.abilityCd = Math.max(0, h.abilityCd - dt); continue }
       if (h.state !== 'normal') continue
       if (this.abilities.use(h.ability, h, true)) h.abilityCd = ABILITY.cooldown[h.ability]
-      else if (h.ability === 'grapple') h.abilityCd = ABILITY.botGrappleRetry
+      // Hook / papaya with nobody in range: keep waiting (retry shortly), no cooldown.
+      else if (h.ability === 'grapple' || h.ability === 'papaya') h.abilityCd = ABILITY.botGrappleRetry
     }
   }
 
@@ -117,13 +120,34 @@ export class Race {
 
   toast(text: string, t = 1.6) { this.toasts.push({ text, t }) }
 
+  /** Papaya-Bomb aim mode: the slot waiting for a tap on the track, or -1. */
+  aiming = -1
+
   /** Fire the ability in slot `i` if it's off cooldown. A hook with no target doesn't start the cooldown. */
   useSlot(i: number): boolean {
     const id = this.slots[i]
     if (!id || this.phase !== 'racing' || this.player.finished) return false
     if ((this.cooldowns[i] ?? 0) > 0) return false
+    if (id === 'papaya') {
+      // First press: aim. Press again to cancel. The throw happens on the next tap/click on the track.
+      if (this.aiming === i) { this.aiming = -1; this.toast('Throw cancelled', 0.9); return false }
+      this.aiming = i
+      this.toast('🥭 Tap the track to throw!', 1.6)
+      return false
+    }
     if (!this.abilities.use(id)) { this.flushNotices(); return false }
     this.cooldowns[i] = ABILITY.cooldown[id]
+    this.flushNotices()
+    return true
+  }
+
+  /** Throw the aimed papaya at world point `at`. */
+  throwAt(at: { x: number; y: number }): boolean {
+    const i = this.aiming
+    if (i < 0 || this.phase !== 'racing' || this.player.finished) { this.aiming = -1; return false }
+    if (!this.abilities.use('papaya', this.player, false, at)) { this.toast("Can't throw right now!", 1); return false }
+    this.aiming = -1
+    this.cooldowns[i] = ABILITY.cooldown.papaya
     this.flushNotices()
     return true
   }
@@ -186,6 +210,7 @@ export class Race {
     for (const h of this.horses) {
       if (h.isPlayer) continue
       if (frozen) { h.ctrl.mode = 'coast'; continue }
+      if (h.dummy) { h.ctrl.mode = 'stop'; h.ctrl.aim = null; h.ctrl.steer = 0; continue }
       thinkBot(h, this.horses, this.track, dt, this.player, this.time > RACE.startGrace, this.time > RACE.huntDelay)
     }
 
@@ -203,6 +228,7 @@ export class Race {
     for (const it of this.abilities.items) {
       if (it.kind === 'fireball' && Math.random() < dt * 60) this.fx.boostTrail(it.pos.x, it.pos.y, Math.random() < 0.5 ? '#ff7a1a' : '#ffd23f')
       if (it.kind === 'roomba' && Math.random() < dt * 10) this.fx.dust(it.pos.x, it.pos.y, 1)
+      if (it.kind === 'hay' && Math.random() < dt * 12 && it.pts.length) { const q = it.pts[(Math.random() * it.pts.length) | 0]; this.fx.boostTrail(q.x, q.y, '#e8c860') }
     }
 
     // Dust from galloping hooves; sparks trail a boosting horse.
@@ -257,6 +283,24 @@ export class Race {
     }
   }
 
+  /** Put horse `h` on the track `ahead` units from the player (lat = sideways offset), standing still. */
+  placeAhead(h: Horse, ahead: number, lat = 0) {
+    const at = sample(this.track, this.player.lastS + ahead)
+    h.state = 'normal'; h.z = 0; h.recoverTimer = 0; h.boostTimer = 0; h.knockTimer = 0; h.stunTimer = 0
+    h.pos = { x: at.p.x + at.nrm.x * lat, y: at.p.y + at.nrm.y * lat }
+    const loc = locate(this.track, h.pos)
+    let ds = loc.s - h.lastS; ds -= Math.round(ds / this.L) * this.L
+    h.progress += ds; h.lastS = loc.s; h.trackIdx = loc.i
+    h.heading = Math.atan2(at.tan.y, at.tan.x)
+    h.vel = { x: 0, y: 0 }; h.fwdSpeed = 0
+  }
+
+  /** Blow a horse up as if rammed from behind (tutorial demo of the catch-up boost). */
+  blastHorse(h: Horse) {
+    const from = { x: h.pos.x - Math.cos(h.heading) * 30, y: h.pos.y - Math.sin(h.heading) * 30 }
+    for (const e of blast(h, from, this.track, false, 0.7, 0.9)) this.handle(e)
+  }
+
   private handle(e: PhysEvent) {
     const p = this.player
     const near = (x: number, y: number) => clamp(1 - dist(p.pos, { x, y }) / 900, 0.15, 1)
@@ -273,7 +317,7 @@ export class Race {
       }
       case 'explode': {
         const k = near(e.x, e.y)
-        const m = e.mini ? 0.5 : 1
+        const m = e.big ? 1.6 : e.mini ? 0.5 : 1
         this.fx.explode(e.x, e.y, m)
         this.fx.addShake(26 * k * m)
         this.fx.flash = Math.max(this.fx.flash, 0.7 * k * m)
