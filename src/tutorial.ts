@@ -1,21 +1,24 @@
 /**
  * Derby Dash tutorial: one list of steps, run by a tiny engine.
  *
- * Adding a feature? Append a step to STEPS with `since: <new version>` and bump TUTORIAL_VERSION.
- * - New players (nothing seen yet) get every step, in order, the first time they press PLAY.
- * - Returning players who saw an older version get a short "What's new" with only the steps
- *   whose `since` is newer than what they saw.
+ * Adding a feature? Bump TUTORIAL_VERSION, then
+ *   1. add (or update) a tutorial step in STEPS so new players learn it, and
+ *   2. add an entry to NEWS with `since: <new version>`.
+ * - New players (nothing seen yet) get every tutorial step, in order, the first time they press PLAY
+ *   (and never the What's new panel: the tutorial already covers it).
+ * - Returning players whose saved version is older see ONE scrollable "What's new" panel on the
+ *   main menu as soon as the game opens, listing every NEWS entry newer than what they saw.
  * Steps say where they happen (`where`): in a practice race, in the Magic Shop, or anywhere
  * (a tip card). The engine opens the practice race / the shop as needed.
  * A step advances when `done(ctx)` returns true (the player actually did it), or, if it has
  * no `done`, when the player presses Next.
  */
 import { ABILITIES, abilityDef, type AbilityId, type Save } from './abilities'
-import { ABILITY } from './config'
+import { ABILITY, HORSE } from './config'
 import type { Race } from './race'
 
 /** Bump this whenever you append steps for a new feature. */
-export const TUTORIAL_VERSION = 2
+export const TUTORIAL_VERSION = 3
 export const TUTORIAL_KEY = 'derby.tutorial'
 
 export interface TutCtx {
@@ -95,7 +98,7 @@ export const STEPS: TutStep[] = [
   },
   {
     id: 'boost', since: 1, where: 'race', title: 'Catch-up boost 🚀',
-    text: 'Ouch, you got blown up! When you land and get up again, you get a short <b>speed boost</b> to catch up. Look for the sparks.',
+    text: `Ouch, you got blown up! When you land and get up again, you get a <b>speed boost</b> for ${HORSE.boostSeconds}s to catch up. Look for the sparks.`,
     setup: (c) => { const r = c.race; if (r && r.player.state === 'normal') r.blastHorse(r.player) },
     done: (c) => !!c.race && c.race.player.state === 'normal' && c.race.player.boostTimer > 0 && c.t > 0.5,
   },
@@ -156,7 +159,7 @@ export const STEPS: TutStep[] = [
   },
   {
     id: 'hay', since: 2, where: 'any', title: 'New: Orbiting Hay 🌾',
-    text: `<b>Orbiting Hay</b>: ${ABILITY.hayBundles} sharp hay bundles circle you for ${ABILITY.haySeconds}s. Each one that hits a horse slows it for ${ABILITY.haySlowSeconds}s, and all 3 hits stack!`,
+    text: `<b>Orbiting Hay</b>: ${ABILITY.hayBundles} sharp hay bundles circle you for ${ABILITY.haySeconds}s. Each one that hits a horse slows it to ${Math.round(ABILITY.haySlowMul * 100)}% for ${ABILITY.haySlowSeconds}s, and hits stack. Get a horse with all 3 and it <b>explodes</b> (no catch-up boost)!`,
     next: 'Next',
   },
   {
@@ -177,27 +180,49 @@ export const STEPS: TutStep[] = [
   },
 ]
 
+/** One entry in the "What's new" panel. */
+export interface NewsItem { id: string; since: number; icon: string; title: string; text: string }
+
+/** Update notes, oldest first. The panel shows the ones newer than the player's saved version. */
+export const NEWS: NewsItem[] = [
+  // v2 (v7 update)
+  { id: 'emp', since: 2, icon: '⚡', title: 'New ability: EMP', text: `Zaps every horse around you: stunned for ${ABILITY.empStunSeconds}s, then slowed to ${Math.round(ABILITY.empSlowMul * 100)}% for ${ABILITY.empSlowSeconds}s.` },
+  { id: 'hay', since: 2, icon: '🌾', title: 'New ability: Orbiting Hay', text: `${ABILITY.hayBundles} sharp hay bundles circle you for ${ABILITY.haySeconds}s and slow every horse they touch.` },
+  { id: 'papaya', since: 2, icon: '🥭', title: 'New ability: Papaya-Bomb', text: 'Use it, then tap the track to throw. It blows up every horse in a big circle (short stun, no boost).' },
+  { id: 'grapple', since: 2, icon: '🪝', title: 'Grappling Hook changed', text: 'Shorter range, needs a clear line along the track, and the horse only explodes once it is pulled all the way to you.' },
+  { id: 'tutorial', since: 2, icon: '🎓', title: 'Tutorial', text: 'New players get a hands-on tutorial. Replay it any time from the Tutorial button.' },
+  // v3 (v8 update)
+  { id: 'hay-buff', since: 3, icon: '🌾', title: 'Hay slows more', text: `Each hay bundle now slows to ${Math.round(ABILITY.haySlowMul * 100)}% (was 85%) for ${ABILITY.haySlowSeconds}s, and hits still stack.` },
+  { id: 'hay-triple', since: 3, icon: '💥', title: 'Triple hay = explosion', text: 'Get hit by all 3 bundles of one hay and you explode, with no catch-up boost. Works on every horse, you included!' },
+  { id: 'papaya-fast', since: 3, icon: '🥭', title: 'Faster Papaya-Bomb', text: `It now lands in ${ABILITY.papayaFlight}s (was 2s), so it is much harder to dodge.` },
+  { id: 'boost', since: 3, icon: '🚀', title: 'Shorter catch-up boost', text: `The boost after getting blown up now lasts ${HORSE.boostSeconds}s (was 4s) and is a little slower (+${Math.round((HORSE.boostSpeedMul - 1) * 100)}%, was +90%).` },
+]
+
+/** News for a player who last saw version `seen` (nothing for brand-new players). */
+export function newsFor(seen: number): NewsItem[] {
+  if (seen <= 0 || seen >= TUTORIAL_VERSION) return []
+  return NEWS.filter((n) => n.since > seen)
+}
+
 /** What the player has seen: 0 = never played. */
 export function seenVersion(): number {
-  const v = Number(localStorage.getItem(TUTORIAL_KEY))
-  if (v > 0) return v
+  const raw = localStorage.getItem(TUTORIAL_KEY)
+  if (raw !== null) return Number(raw) || 0
   // Players from before the tutorial existed (they already have a save) know the basics.
   return localStorage.getItem('derby.save') ? 1 : 0
 }
+/** Call once on load: a brand-new player is recorded as "seen 0" before any save is written,
+ * so shopping before the first PLAY doesn't turn them into a "returning" player. */
+export function initSeen() { if (localStorage.getItem(TUTORIAL_KEY) === null && !localStorage.getItem('derby.save')) localStorage.setItem(TUTORIAL_KEY, '0') }
 export function markSeen() { localStorage.setItem(TUTORIAL_KEY, String(TUTORIAL_VERSION)) }
 
-/** Steps for a full run (seen = 0) or a "What's new" run (only steps newer than `seen`). */
-export function stepsFor(seen: number): TutStep[] {
-  if (seen <= 0) return STEPS
-  return STEPS.filter((s) => s.since > seen)
-}
 
 /** Runs a list of steps. The game calls update() every frame and listens to the callbacks. */
 export class Tutorial {
   i = -1
   t = 0
   data: Record<string, number> = {}
-  constructor(public steps: TutStep[], public whatsNew: boolean) {}
+  constructor(public steps: TutStep[]) {}
   get step(): TutStep | null { return this.steps[this.i] ?? null }
   get finished() { return this.i >= this.steps.length }
 

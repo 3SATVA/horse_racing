@@ -1,7 +1,7 @@
 import { ABILITIES, buy, equip, loadSave, raceReward, storeSave, type AbilityId } from './abilities'
 import { Audio } from './audio'
 import { ABILITY, HORSE, RACE, TRACK } from './config'
-import { STEPS, TUTORIAL_KEY, TUTORIAL_VERSION, Tutorial, markSeen, seenVersion, stepsFor, type TutCtx } from './tutorial'
+import { NEWS, STEPS, TUTORIAL_KEY, TUTORIAL_VERSION, Tutorial, initSeen, markSeen, newsFor, seenVersion, type NewsItem, type TutCtx } from './tutorial'
 import { Effects } from './effects'
 import { Input } from './input'
 import { slowMul } from './horse'
@@ -80,13 +80,14 @@ function toMenu() {
 }
 
 // ---- Tutorial ------------------------------------------------------------
-// The steps live in tutorial.ts. First PLAY ever = the full tutorial; after an update that added
-// steps (TUTORIAL_VERSION went up) = a short "What's new". ?debug turns the automatic one off
-// (so tests are not interrupted) unless &tutorial (full) or &tutorial=new is given.
+// The steps live in tutorial.ts. First PLAY ever = the full tutorial. After an update
+// (TUTORIAL_VERSION went up), a returning player sees ONE scrollable "What's new" panel on the
+// menu as soon as the game opens (never from PLAY). ?debug turns both off (so tests are not
+// interrupted) unless &tutorial (full tutorial on PLAY) or &whatsnew[=seenVersion] is given.
 const mobile = matchMedia('(pointer: coarse)').matches
 let tut: Tutorial | null = null
 let tutFromPlay = false
-let tutForce = params.has('tutorial') ? (params.get('tutorial') === 'new' ? 'new' : 'full') : ''
+let tutForce = params.has('tutorial')
 const tutEl = document.getElementById('tutorial') as HTMLElement
 const tutTitle = document.getElementById('tutTitle') as HTMLElement
 const tutText = document.getElementById('tutText') as HTMLElement
@@ -120,12 +121,12 @@ function startPractice() {
   setScreen('race')
 }
 
-function startTutorial(mode: 'full' | 'new', fromPlay: boolean) {
+function startTutorial(fromPlay: boolean) {
   audio.unlock()
-  const seen = mode === 'full' ? 0 : Math.max(1, Math.min(seenVersion(), TUTORIAL_VERSION - 1))
-  tut = new Tutorial(stepsFor(seen), mode === 'new')
+  closeNews(false)
+  tut = new Tutorial(STEPS)
   tutFromPlay = fromPlay
-  tutBadge.textContent = tut.whatsNew ? "WHAT'S NEW" : 'TUTORIAL'
+  tutBadge.textContent = 'TUTORIAL'
   tutEl.hidden = false
   nextTutStep()
 }
@@ -189,15 +190,41 @@ function tutFrame(dt: number) {
 
 ui.on('tutNext', () => { if (tut?.step) nextTutStep() })
 ui.on('tutSkip', () => endTutorial(false))
-ui.on('btnTutorial', () => startTutorial('full', false))
+ui.on('btnTutorial', () => startTutorial(false))
+
+// ---- What's new: one scrollable panel on the menu, shown on load after an update ----
+const newsEl = document.getElementById('whatsNew') as HTMLElement
+const newsList = document.getElementById('newsList') as HTMLElement
+let newsShown: NewsItem[] = []
+function openNews(items: NewsItem[]) {
+  if (!items.length) return
+  newsShown = items
+  newsList.innerHTML = items.map((n) => `<li data-id="${n.id}"><span class="ni">${n.icon}</span><div><b>${n.title}</b><p>${n.text}</p></div></li>`).join('')
+  newsList.scrollTop = 0
+  newsEl.hidden = false
+}
+/** Close the panel; `seen` = remember it (OK / ✕). */
+function closeNews(seen = true) {
+  if (newsEl.hidden) return
+  newsEl.hidden = true
+  newsShown = []
+  if (seen) markSeen()
+}
+ui.on('newsOk', () => { audio.unlock(); closeNews() })
+ui.on('newsClose', () => { audio.unlock(); closeNews() })
+newsEl.addEventListener('click', (e) => { if (e.target === newsEl) closeNews() })
+{
+  initSeen()
+  const seen = seenVersion()
+  if (params.has('whatsnew')) openNews(newsFor(Number(params.get('whatsnew')) || Math.max(1, Math.min(seen, TUTORIAL_VERSION - 1))))
+  else if (!debug && seen > 0 && seen < TUTORIAL_VERSION) openNews(newsFor(seen))
+}
 
 function play() {
-  if (tutForce) { const m = tutForce as 'full' | 'new'; tutForce = ''; startTutorial(m, true); return }
-  if (!debug) {
-    const seen = seenVersion()
-    if (seen === 0) { startTutorial('full', true); return }
-    if (seen < TUTORIAL_VERSION) { startTutorial('new', true); return }
-  }
+  // PLAY never shows What's new: if the panel is still open, PLAY just closes it (seen) and races.
+  closeNews()
+  if (tutForce) { tutForce = false; startTutorial(true); return }
+  if (!debug && seenVersion() === 0) { startTutorial(true); return }
   startRace()
 }
 
@@ -330,8 +357,9 @@ window.__horse = {
       items: r?.abilities.items.map((it) => ({ kind: it.kind, owner: it.owner, t: it.t, ...('pos' in it ? { x: it.pos.x, y: it.pos.y } : {}), ...(it.kind === 'hook' ? { target: it.target, done: it.done, result: it.result } : {}), ...('to' in it ? { tx: it.to.x, ty: it.to.y, done: it.done } : {}), ...('pts' in it ? { pts: it.pts.map((q) => [q.x, q.y]) } : {}), ...('hits' in it ? { hits: it.hits } : {}), ...('vel' in it ? { vx: it.vel.x, vy: it.vel.y } : {}) })),
       used: r ? { ...r.abilities.used } : null,
       pen: pen.debug(),
-      tutorial: tut ? { step: tut.step?.id ?? null, index: tut.i, count: tut.steps.length, whatsNew: tut.whatsNew, ids: tut.steps.map((x) => x.id), next: !tutNext.hidden } : null,
-      tutorialSeen: Number(localStorage.getItem(TUTORIAL_KEY)) || 0, tutorialVersion: TUTORIAL_VERSION, tutorialAll: STEPS.map((x) => ({ id: x.id, since: x.since })),
+      tutorial: tut ? { step: tut.step?.id ?? null, index: tut.i, count: tut.steps.length, ids: tut.steps.map((x) => x.id), next: !tutNext.hidden } : null,
+      news: newsEl.hidden ? null : newsShown.map((n) => n.id), newsAll: NEWS.map((n) => ({ id: n.id, since: n.since })),
+      tutorialSeen: seenVersion(), tutorialVersion: TUTORIAL_VERSION, tutorialAll: STEPS.map((x) => ({ id: x.id, since: x.since })),
       practice: !!r?.tutorial,
       shake: fx.shake,
       horses: r?.horses.map((h) => ({
@@ -370,6 +398,8 @@ window.__horse = {
     botAbilitiesOn: (on: boolean) => { if (race) race.botAbilities = on },
     resetSave: () => { localStorage.removeItem('derby.save'); save = loadSave(); ui.updateWallet(save); if (screen === 'shop') refreshShop() },
     useAbility: (slot = 0) => (race ? race.useSlot(slot) : false),
+    /** Force horse `id` to use ability `ab` right now (bots included). */
+    botUse: (id: number, ab: AbilityId) => !!race && race.abilities.use(ab, race.horses[id], true),
     abilityIds: () => ABILITIES.map((a) => a.id),
     penClick: (i: number) => { const p = pen.debug().horses[i]; return p ? pen.click(p.x, p.y) : -1 },
     penSpawn: (n: number) => pen.spawn(n),
@@ -398,8 +428,9 @@ window.__horse = {
       const at = sample(race.track, race.player.lastS + ahead)
       return { x: at.p.x + at.nrm.x * lat, y: at.p.y + at.nrm.y * lat, heading: Math.atan2(at.tan.y, at.tan.x) }
     },
-    /** Tutorial: start one ('full' | 'new'), or set the stored seen version (0 = never). */
-    tutorialStart: (mode: 'full' | 'new' = 'full') => startTutorial(mode, true),
+    /** Tutorial: start it, or set the stored seen version (0 = never). */
+    tutorialStart: () => startTutorial(true),
+    showNews: (seen: number) => openNews(newsFor(seen)),
     setTutorialSeen: (v: number) => { if (v > 0) localStorage.setItem(TUTORIAL_KEY, String(v)); else localStorage.removeItem(TUTORIAL_KEY) },
     /** Skip the countdown. */
     go: () => { if (race && race.phase === 'countdown') race.countdown = 0.001 },

@@ -68,8 +68,8 @@ export const HORSE = {
   /** Flight (pinball phase) length before the horse lands stunned. */
   flightSeconds: 1.5,
   /** Catch-up boost after getting up from a stun. */
-  boostSeconds: 4,
-  boostSpeedMul: 1.9,
+  boostSeconds: 3,
+  boostSpeedMul: 1.8,
   boostAccelMul: 3.4,
   /** A fence hit only bumps when it's head-on: normal speed above this AND steeper than ~55°. Grazing keeps all speed. */
   fenceHeadOnSpeed: 180,
@@ -169,10 +169,13 @@ export const ABILITY = {
   hayOrbit: 52,
   hayRadius: 13,
   haySpin: 3.4,
-  haySlowMul: 0.85,
+  haySlowMul: 0.75,
   haySlowSeconds: 3,
+  /** Hit by all 3 bundles of one hay use: a stun-explosion with no catch-up boost. */
+  hayTripleFlySeconds: 0.55,
+  hayTripleStunSeconds: 1.5,
   /** Papaya bomb: thrown at a spot on the track, lands after papayaFlight s and blows up horses in papayaRadius. */
-  papayaFlight: 2,
+  papayaFlight: 1,
   papayaRadius: 170,
   papayaRange: 950,
   papayaFlySeconds: 0.55,

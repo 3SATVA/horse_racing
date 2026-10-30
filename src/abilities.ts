@@ -15,8 +15,8 @@ export const ABILITIES: AbilityDef[] = [
   { id: 'banana', name: 'Banana Peel of Doom', icon: '🍌', price: 60, desc: 'Drop it behind you. Whoever steps on it spins out of control: they can only pick their speed.' },
   { id: 'fireball', name: 'Fireball', icon: '🔥', price: 120, desc: 'A fireball that bounces around the track for 4.6s, burning through horses. Rivals it touches crawl at 35% speed for 3.5s.' },
   { id: 'emp', name: 'EMP', icon: '⚡', price: 130, desc: 'An electric pulse around you. Every rival inside the ring is stunned for 0.75s, then runs at 0.75x speed for 3s.' },
-  { id: 'hay', name: 'Orbiting Hay', icon: '🌾', price: 110, desc: '3 sharp hay bundles orbit you for 8s. Each one that touches a rival slows it to 0.85x for 3s, and hits stack: all 3 is about 0.61x.' },
-  { id: 'papaya', name: 'Papaya-Bomb', icon: '🥭', price: 200, desc: 'Tap the track to throw it. It lands 2s later and explodes in a big radius: rivals there get a short stun and no catch-up boost.' },
+  { id: 'hay', name: 'Orbiting Hay', icon: '🌾', price: 110, desc: '3 sharp hay bundles orbit you for 8s. Each one that touches a rival slows it to 0.75x for 3s, and hits stack. Get hit by all 3 and you explode (a short stun, no catch-up boost).' },
+  { id: 'papaya', name: 'Papaya-Bomb', icon: '🥭', price: 200, desc: 'Tap the track to throw it. It lands 1s later and explodes in a big radius: rivals there get a short stun and no catch-up boost.' },
 ]
 export const abilityDef = (id: AbilityId) => ABILITIES.find((a) => a.id === id)!
 
@@ -339,6 +339,14 @@ export class AbilitySystem {
               h.haySlow[k] = ABILITY.haySlowSeconds
               it.hits++
               const stack = h.haySlow.filter((t) => t > 0).length
+              if (it.hit.every((s) => s.has(h.id))) {
+                // All 3 bundles of this use hit the same horse: it explodes (stun, no catch-up boost).
+                h.haySlow = h.haySlow.map(() => 0)
+                ev.push(...blast(h, p.pos, this.tr, true, ABILITY.hayTripleFlySeconds, ABILITY.hayTripleStunSeconds))
+                p.kills++
+                this.say(p.isPlayer ? `🌾💥 Triple hay! ${h.name} exploded!` : h.isPlayer ? `🌾💥 ${p.name}'s triple hay blew you up!` : '', p.isPlayer || h.isPlayer)
+                continue
+              }
               this.say(p.isPlayer ? `🌾 ${h.name} got haystabbed${stack > 1 ? ` x${stack}` : ''}!` : h.isPlayer ? `🌾 ${p.name}'s hay got you${stack > 1 ? ` x${stack}` : ''}!` : '', p.isPlayer || h.isPlayer, 'slip')
             }
           }
@@ -347,7 +355,7 @@ export class AbilitySystem {
         case 'papaya': {
           const f = Math.min(1, it.t / ABILITY.papayaFlight)
           it.pos = { x: it.from.x + (it.to.x - it.from.x) * f, y: it.from.y + (it.to.y - it.from.y) * f }
-          it.z = Math.sin(f * Math.PI) * 160
+          it.z = Math.sin(f * Math.PI) * 120
           if (f >= 1 && !it.done) {
             it.done = true
             ev.push({ type: 'explode', x: it.to.x, y: it.to.y, victim: -1, big: true })
