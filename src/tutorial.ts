@@ -18,7 +18,7 @@ import { ABILITY, HORSE } from './config'
 import type { Race } from './race'
 
 /** Bump this whenever you append steps for a new feature. */
-export const TUTORIAL_VERSION = 4
+export const TUTORIAL_VERSION = 5
 export const TUTORIAL_KEY = 'derby.tutorial'
 
 export interface TutCtx {
@@ -217,6 +217,8 @@ export const NEWS: NewsItem[] = [
   { id: 'robot', since: 4, icon: '🤖', title: 'Roomba → Robot Horse', text: `The roomba is now a Robot Horse: a bit faster than any horse, it follows the track and hunts the nearest rival for up to ${ABILITY.robotSeconds}s, then blows them up. Roomba owners keep it.` },
   { id: 'nade', since: 4, icon: '🌩️', title: 'New ability: Electricity-nade', text: `Throw it like the papaya; it lands in ${ABILITY.nadeFlight}s. The shock chains between horses close together: ${ABILITY.nadeStunSeconds}s stun, then ${Math.round(ABILITY.nadeSlowMul * 100)}% speed for ${ABILITY.nadeSlowSeconds}s.` },
   { id: 'banana-big', since: 4, icon: '🍌', title: 'Bigger banana peels', text: `Banana peels are ${Math.round(ABILITY.bananaArtScale * 100 - 100)}% bigger and much easier to step on: they now trip horses up to ${ABILITY.bananaRadius + 14} away (was 34).` },
+  { id: 'nade-stun', since: 5, icon: '🌩️', title: 'Elec-nade stun: 1.25s', text: `The Electricity-nade now stuns for ${ABILITY.nadeStunSeconds}s (was 0.5s). The ${Math.round(ABILITY.nadeSlowMul * 100)}% speed for ${ABILITY.nadeSlowSeconds}s afterwards and the no-boost rule are unchanged.` },
+  { id: 'rocket-cd', since: 5, icon: '🚀', title: 'Rocket Hooves cooldown: 23s', text: `Rocket Hooves now take ${ABILITY.cooldown.rocket}s to recharge after each use.` },
 ]
 
 /** News for a player who last saw version `seen` (nothing for brand-new players). */

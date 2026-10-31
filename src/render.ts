@@ -145,7 +145,7 @@ export class Renderer {
     if (r.aim) {
       ctx.save()
       ctx.font = '800 17px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      const txt = '🥭 Tap the track to throw the Papaya-Bomb'
+      const txt = r.aim.electric ? '🌩️ Tap the track to throw the Elec-nade' : '🥭 Tap the track to throw the Papaya-Bomb'
       const w = ctx.measureText(txt).width + 28, y = Math.min(110, this.h * 0.24)
       ctx.fillStyle = 'rgba(40,16,0,0.72)'
       ctx.beginPath(); ctx.roundRect(this.w / 2 - w / 2, y - 17, w, 34, 17); ctx.fill()

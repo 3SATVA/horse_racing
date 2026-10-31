@@ -156,7 +156,7 @@ export const ABILITY = {
   nadeRange: 950,
   nadeRadius: 95,
   nadeChain: 160,
-  nadeStunSeconds: 0.5,
+  nadeStunSeconds: 1.25,
   nadeSlowMul: 0.85,
   nadeSlowSeconds: 2,
   /** Banana peel of doom: dropped behind you; whoever steps on it spins out. */
@@ -197,7 +197,7 @@ export const ABILITY = {
   papayaFlySeconds: 0.55,
   papayaStunSeconds: 1.8,
   /** Seconds between uses, per ability (player and bots alike). Stronger = longer. */
-  cooldown: { banana: 8, ball: 10, fireball: 12, grapple: 12, roomba: 16, emp: 14, hay: 16, papaya: 16, rocket: 14, nade: 15 } as Record<'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya' | 'rocket' | 'nade', number>,
+  cooldown: { banana: 8, ball: 10, fireball: 12, grapple: 12, roomba: 16, emp: 14, hay: 16, papaya: 16, rocket: 23, nade: 15 } as Record<'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya' | 'rocket' | 'nade', number>,
   /** Bots: first use at a random moment this many seconds after GO; then whenever it's ready. */
   botFirstMin: 5,
   botFirstMax: 25,
