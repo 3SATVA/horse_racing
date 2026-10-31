@@ -18,7 +18,7 @@ import { ABILITY, HORSE } from './config'
 import type { Race } from './race'
 
 /** Bump this whenever you append steps for a new feature. */
-export const TUTORIAL_VERSION = 3
+export const TUTORIAL_VERSION = 4
 export const TUTORIAL_KEY = 'derby.tutorial'
 
 export interface TutCtx {
@@ -172,6 +172,22 @@ export const STEPS: TutStep[] = [
     text: 'The hook now has a <b>shorter range</b> and only grabs horses you can reach along the track. The hooked horse explodes only when it gets <b>pulled all the way to you</b>.',
     next: 'Next',
   },
+  // ---- v4 (v9 update): more abilities ----
+  {
+    id: 'rocket', since: 4, where: 'any', title: 'New: Rocket Hooves 🚀',
+    text: `<b>Rocket Hooves</b> strap rockets to your hooves: a ${ABILITY.rocketSeconds}s speed boost as strong as the catch-up boost (+${Math.round((HORSE.boostSpeedMul - 1) * 100)}% top speed).`,
+    next: 'Next',
+  },
+  {
+    id: 'robot', since: 4, where: 'any', title: 'New: Robot Horse 🤖',
+    text: `The <b>Robot Horse</b> replaced the roomba (if you owned the roomba, you own the robot). It's a metal horse a little faster than any real horse. It follows the track, hunts the <b>nearest rival</b> for up to ${ABILITY.robotSeconds}s, and blows them up when it catches them.`,
+    next: 'Next',
+  },
+  {
+    id: 'nade', since: 4, where: 'any', title: 'New: Electricity-nade 🌩️',
+    text: (c) => `<b>Electricity-nade</b>: use it, then ${c.mobile ? 'tap' : 'click'} on the track to throw, like the papaya. It lands in just ${ABILITY.nadeFlight}s and stuns rivals near it. The shock <b>jumps between horses close together</b>: each one is stunned ${ABILITY.nadeStunSeconds}s, then runs at ${Math.round(ABILITY.nadeSlowMul * 100)}% speed for ${ABILITY.nadeSlowSeconds}s (no catch-up boost). You're immune.`,
+    next: 'Next',
+  },
   // ---- always last for new players ----
   {
     id: 'done', since: 1, where: 'any', title: "You're ready! 🏆",
@@ -196,6 +212,11 @@ export const NEWS: NewsItem[] = [
   { id: 'hay-triple', since: 3, icon: '💥', title: 'Triple hay = explosion', text: 'Get hit by all 3 bundles of one hay and you explode, with no catch-up boost. Works on every horse, you included!' },
   { id: 'papaya-fast', since: 3, icon: '🥭', title: 'Faster Papaya-Bomb', text: `It now lands in ${ABILITY.papayaFlight}s (was 2s), so it is much harder to dodge.` },
   { id: 'boost', since: 3, icon: '🚀', title: 'Shorter catch-up boost', text: `The boost after getting blown up now lasts ${HORSE.boostSeconds}s (was 4s) and is a little slower (+${Math.round((HORSE.boostSpeedMul - 1) * 100)}%, was +90%).` },
+  // v4 (v9 update)
+  { id: 'rocket', since: 4, icon: '🚀', title: 'New ability: Rocket Hooves', text: `A ${ABILITY.rocketSeconds}s speed boost for yourself, as strong as the catch-up boost (+${Math.round((HORSE.boostSpeedMul - 1) * 100)}%).` },
+  { id: 'robot', since: 4, icon: '🤖', title: 'Roomba → Robot Horse', text: `The roomba is now a Robot Horse: a bit faster than any horse, it follows the track and hunts the nearest rival for up to ${ABILITY.robotSeconds}s, then blows them up. Roomba owners keep it.` },
+  { id: 'nade', since: 4, icon: '🌩️', title: 'New ability: Electricity-nade', text: `Throw it like the papaya; it lands in ${ABILITY.nadeFlight}s. The shock chains between horses close together: ${ABILITY.nadeStunSeconds}s stun, then ${Math.round(ABILITY.nadeSlowMul * 100)}% speed for ${ABILITY.nadeSlowSeconds}s.` },
+  { id: 'banana-big', since: 4, icon: '🍌', title: 'Bigger banana peels', text: `Banana peels are ${Math.round(ABILITY.bananaArtScale * 100 - 100)}% bigger and much easier to step on: they now trip horses up to ${ABILITY.bananaRadius + 14} away (was 34).` },
 ]
 
 /** News for a player who last saw version `seen` (nothing for brand-new players). */

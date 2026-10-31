@@ -1,5 +1,5 @@
 import { ABILITY, BOT, HORSE } from './config'
-import { boostMul, canBeHit, slowMul, type Horse } from './horse'
+import { boostMul, canBeHit, isBoosted, slowMul, type Horse } from './horse'
 import { approach, clamp, dot, fromAngle, wrapAngle } from './math'
 import { locate, type Track } from './track'
 
@@ -58,7 +58,7 @@ function applyControl(h: Horse, dt: number) {
   // A catch-up boost raises both the ceiling and whatever speed the rider asks for.
   const bm = boostMul(h) * slowMul(h)
   const top = h.topSpeed * bm
-  const accel = HORSE.accel * (h.boostTimer > 0 ? HORSE.boostAccelMul : 1)
+  const accel = HORSE.accel * (isBoosted(h) ? HORSE.boostAccelMul : 1)
   switch (c.mode) {
     case 'drive': {
       const target = clamp(c.targetSpeed * bm, 0, top)
@@ -166,6 +166,8 @@ export function stepHorse(h: Horse, tr: Track, dt: number, frozen: boolean): Phy
   if (h.spinOutTimer > 0) h.spinOutTimer = Math.max(0, h.spinOutTimer - dt)
   if (h.slowTimer > 0) h.slowTimer = Math.max(0, h.slowTimer - dt)
   if (h.empSlowTimer > 0) h.empSlowTimer = Math.max(0, h.empSlowTimer - dt)
+  if (h.nadeSlowTimer > 0) h.nadeSlowTimer = Math.max(0, h.nadeSlowTimer - dt)
+  if (h.rocketTimer > 0) h.rocketTimer = Math.max(0, h.rocketTimer - dt)
   for (let k = 0; k < h.haySlow.length; k++) if (h.haySlow[k] > 0) h.haySlow[k] = Math.max(0, h.haySlow[k] - dt)
 
   if (h.knockTimer > 0) {
@@ -231,7 +233,7 @@ function launch(victim: Horse, attacker: Horse, tr: Track, kind: HitKind, slowAt
   victim.flyTimer = 0
   victim.flySide = side
   victim.reverseTimer = 0
-  victim.boostTimer = 0
+  victim.boostTimer = 0; victim.rocketTimer = 0
   victim.bounces = 0
   victim.knockTimer = 0; victim.spinOutTimer = 0; victim.flyLen = 0; victim.stunLen = 0; victim.noBoost = false
   victim.spin = (Math.random() < 0.5 ? -1 : 1) * (10 + Math.random() * 6)
@@ -259,7 +261,7 @@ export function blast(victim: Horse, from: { x: number; y: number }, tr: Track, 
   victim.flyTimer = 0
   victim.flySide = side
   victim.reverseTimer = 0
-  victim.boostTimer = 0
+  victim.boostTimer = 0; victim.rocketTimer = 0
   victim.bounces = 0
   victim.knockTimer = 0
   victim.spinOutTimer = 0

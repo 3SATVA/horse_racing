@@ -80,6 +80,10 @@ export interface Horse {
   slowTimer: number
   /** EMP: 0.75x speed while > 0 (only ticks once the EMP stun is over). */
   empSlowTimer: number
+  /** Rocket Hooves: self boost left (same strength as the catch-up boost). */
+  rocketTimer: number
+  /** Electricity-nade: 0.85x speed while > 0 (only ticks once the stun is over). */
+  nadeSlowTimer: number
   /** Orbiting hay: one slow timer per bundle, so hits from different bundles stack. */
   haySlow: number[]
   /** EMP zap effect left (visual). */
@@ -112,7 +116,7 @@ export function makeHorse(id: number, name: string, colors: Horse['colors'], isP
     gait: Math.random() * 10,
     ai: { lane: 0, laneTimer: 0, stuckTimer: 0, backupTimer: 0, aggression: 0, skill: 1, targetId: -1, ramCooldown: 0, hunting: 0, huntCooldown: rand(4, 10), huntsStarted: 0 },
     surge: 0, timesExploded: 0, kills: 0,
-    spinOutTimer: 0, spinTurn: 0, slowTimer: 0, empSlowTimer: 0, haySlow: [0, 0, 0], zapTimer: 0, knockTimer: 0, flyLen: 0, stunLen: 0, noBoost: false, ability: null, abilityCd: 0, abilityFirstAt: 0, label: null,
+    spinOutTimer: 0, spinTurn: 0, slowTimer: 0, empSlowTimer: 0, rocketTimer: 0, nadeSlowTimer: 0, haySlow: [0, 0, 0], zapTimer: 0, knockTimer: 0, flyLen: 0, stunLen: 0, noBoost: false, ability: null, abilityCd: 0, abilityFirstAt: 0, label: null,
   }
 }
 
@@ -137,8 +141,11 @@ export function slowMul(h: Horse) {
   let m = 1
   if (h.slowTimer > 0) m *= ABILITY.fireballSlowMul
   if (h.empSlowTimer > 0) m *= ABILITY.empSlowMul
+  if (h.nadeSlowTimer > 0) m *= ABILITY.nadeSlowMul
   for (const t of h.haySlow) if (t > 0) m *= ABILITY.haySlowMul
   return m
 }
 
-export const boostMul = (h: Horse) => (h.boostTimer > 0 ? HORSE.boostSpeedMul : 1) * (1 + h.surge)
+/** Catch-up boost or Rocket Hooves (same strength, they don't stack). */
+export const isBoosted = (h: Horse) => h.boostTimer > 0 || h.rocketTimer > 0
+export const boostMul = (h: Horse) => (isBoosted(h) ? HORSE.boostSpeedMul : 1) * (1 + h.surge)

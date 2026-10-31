@@ -139,14 +139,30 @@ export const ABILITY = {
   ballRadius: 15,
   ballKnockSpeed: 330,
   ballKnockSeconds: 0.8,
-  /** Dangerous roomba: drives along the track sweeping side to side; rivals touching it explode. */
-  roombaSeconds: 7,
-  /** Fixed travel speed (horse top speed is 430), so the pack can outrun it. */
-  roombaSpeed: 300,
-  roombaRadius: 24,
+  /**
+   * Robot Horse (replaced the roomba; same save id 'roomba'): a metal horse that follows the track and
+   * homes in on the nearest rival (by distance along the track). It runs robotSpeedMul x the fastest
+   * possible horse top speed (topSpeed x (1 + topSpeedJitter)), so it catches anyone at normal speed,
+   * slowly. On contact the rival explodes (normal explosion, catch-up boost) and the robot is used up.
+   */
+  robotSeconds: 10,
+  robotSpeedMul: 1.03,
+  robotSpeed: (): number => HORSE.topSpeed * (1 + HORSE.topSpeedJitter) * ABILITY.robotSpeedMul,
+  robotRadius: 22,
+  /** Rocket Hooves: your own boost, as strong as the catch-up boost (HORSE.boostSpeedMul / boostAccelMul). */
+  rocketSeconds: 3.5,
+  /** Electricity-nade: thrown like the papaya, lands fast, stuns horses near the blast and chains between close horses. */
+  nadeFlight: 0.25,
+  nadeRange: 950,
+  nadeRadius: 95,
+  nadeChain: 160,
+  nadeStunSeconds: 0.5,
+  nadeSlowMul: 0.85,
+  nadeSlowSeconds: 2,
   /** Banana peel of doom: dropped behind you; whoever steps on it spins out. */
   bananaSpinSeconds: 2.6,
-  bananaRadius: 20,
+  bananaRadius: 44, // v9: was 20; a horse trips within radius + 14 (34 → 58, 1.7x)
+  bananaArtScale: 1.6, // drawn peel size vs the v8 art, to match the bigger hit box
   bananaSeconds: 20,
   /** At most this many of one horse's peels on the track at once (oldest is removed). */
   bananaMaxPerOwner: 2,
@@ -181,7 +197,7 @@ export const ABILITY = {
   papayaFlySeconds: 0.55,
   papayaStunSeconds: 1.8,
   /** Seconds between uses, per ability (player and bots alike). Stronger = longer. */
-  cooldown: { banana: 8, ball: 10, fireball: 12, grapple: 12, roomba: 15, emp: 14, hay: 16, papaya: 16 } as Record<'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya', number>,
+  cooldown: { banana: 8, ball: 10, fireball: 12, grapple: 12, roomba: 16, emp: 14, hay: 16, papaya: 16, rocket: 14, nade: 15 } as Record<'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya' | 'rocket' | 'nade', number>,
   /** Bots: first use at a random moment this many seconds after GO; then whenever it's ready. */
   botFirstMin: 5,
   botFirstMax: 25,

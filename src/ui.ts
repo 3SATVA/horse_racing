@@ -141,8 +141,8 @@ export class UI {
     const fill = $('speedFill')
     fill.style.width = `${frac * 100}%`
     fill.classList.toggle('reverse', p.fwdSpeed < -2)
-    fill.classList.toggle('boost', p.boostTimer > 0)
-    $('speedLabel').textContent = p.fwdSpeed < -2 ? 'REV' : p.boostTimer > 0 && p.fwdSpeed > p.topSpeed ? 'BOOST!' : frac > 0.97 ? 'TOP!' : `${Math.round(frac * 100)}%`
+    fill.classList.toggle('boost', p.boostTimer > 0 || p.rocketTimer > 0)
+    $('speedLabel').textContent = p.fwdSpeed < -2 ? 'REV' : (p.boostTimer > 0 || p.rocketTimer > 0) && p.fwdSpeed > p.topSpeed ? 'BOOST!' : frac > 0.97 ? 'TOP!' : `${Math.round(frac * 100)}%`
     // Today's top speed vs. the average horse (it wanders for everyone).
     const pct = Math.round((p.topTarget / HORSE.topSpeed - 1) * 100)
     const top = $('speedTop')
@@ -163,6 +163,7 @@ export class UI {
     if (p.state === 'flying') { text = 'KABOOM!'; cls = 'stun' }
     else if (p.state === 'stunned') { text = `STUNNED ${p.stunTimer.toFixed(1)}s · boost next!`; cls = 'stun' }
     else if (p.boostTimer > 0) { text = `⚡ CATCH-UP BOOST ${p.boostTimer.toFixed(1)}s`; cls = 'boost' }
+    else if (p.rocketTimer > 0) { text = `🚀 ROCKET HOOVES ${p.rocketTimer.toFixed(1)}s`; cls = 'boost' }
     else if (p.fwdSpeed < -6) { text = 'REVERSING'; cls = 'rev' }
     else if (p.wrongWayTimer > 0.8) { text = 'WRONG WAY'; cls = '' }
     this.status.hidden = !text

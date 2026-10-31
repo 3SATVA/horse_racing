@@ -21,7 +21,7 @@ export interface RenderInput {
   showArrow: boolean
   items?: Item[]
   /** Papaya aim mode: range ring around the player and (mouse) the clamped landing spot. */
-  aim?: { range: number; radius: number; at: Vec | null } | null
+  aim?: { range: number; radius: number; electric?: boolean; at: Vec | null } | null
 }
 
 interface TrackCache { track: Track; posts: Vec[] }
@@ -301,6 +301,8 @@ export class Renderer {
       ctx.beginPath(); ctx.arc(h.pos.x, h.pos.y, 48, 0, Math.PI * 2); ctx.fill()
     }
 
+    if (h.rocketTimer > 0 && h.state === 'normal') drawRocketFlames(ctx, h, time)
+
     ctx.save()
     const lift = h.z
     const s = 1 + lift / 140
@@ -479,4 +481,32 @@ export class Renderer {
 
   safeRight = 0
   safeBottom = 0
+}
+
+/** Rocket Hooves: a little rocket strapped to each back leg, blasting flame out the back. */
+function drawRocketFlames(ctx: CanvasRenderingContext2D, h: Horse, time: number) {
+  ctx.save()
+  ctx.translate(h.pos.x, h.pos.y)
+  ctx.rotate(h.heading)
+  const fade = Math.min(1, h.rocketTimer / 0.3)
+  ctx.globalAlpha = fade
+  for (const side of [-1, 1]) {
+    const y = side * 9
+    const flick = 0.75 + 0.25 * Math.sin(time * 47 + side * 2) + 0.15 * Math.sin(time * 83 + side)
+    const len = 34 * flick
+    // Outer flame.
+    const g = ctx.createLinearGradient(-18, 0, -18 - len, 0)
+    g.addColorStop(0, 'rgba(255,250,200,0.95)'); g.addColorStop(0.35, 'rgba(255,170,40,0.9)'); g.addColorStop(1, 'rgba(230,40,10,0)')
+    ctx.fillStyle = g
+    ctx.beginPath(); ctx.moveTo(-18, y - 6); ctx.quadraticCurveTo(-18 - len * 0.6, y - 8, -18 - len, y); ctx.quadraticCurveTo(-18 - len * 0.6, y + 8, -18, y + 6); ctx.closePath(); ctx.fill()
+    // Hot core.
+    ctx.fillStyle = 'rgba(180,230,255,0.9)'
+    ctx.beginPath(); ctx.ellipse(-21, y, 5 * flick, 3, 0, 0, Math.PI * 2); ctx.fill()
+    // The rocket tube.
+    ctx.fillStyle = '#c8ccd4'; ctx.strokeStyle = '#4a4f5a'; ctx.lineWidth = 1.5
+    ctx.beginPath(); ctx.roundRect(-20, y - 4, 16, 8, 3); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#d8231a'
+    ctx.beginPath(); ctx.moveTo(-4, y - 4); ctx.lineTo(2, y); ctx.lineTo(-4, y + 4); ctx.closePath(); ctx.fill()
+  }
+  ctx.restore()
 }

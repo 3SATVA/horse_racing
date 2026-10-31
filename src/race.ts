@@ -1,4 +1,4 @@
-import { ABILITIES, AbilitySystem, type AbilityId } from './abilities'
+import { ABILITIES, AIMED, AbilitySystem, type AbilityId } from './abilities'
 import { setupBot, thinkBot } from './ai'
 import type { Audio } from './audio'
 import { ABILITY, HORSE, HORSE_COLORS, HORSE_NAMES, RACE } from './config'
@@ -77,7 +77,7 @@ export class Race {
       if (h.state !== 'normal') continue
       if (this.abilities.use(h.ability, h, true)) h.abilityCd = ABILITY.cooldown[h.ability]
       // Hook / papaya with nobody in range: keep waiting (retry shortly), no cooldown.
-      else if (h.ability === 'grapple' || h.ability === 'papaya') h.abilityCd = ABILITY.botGrappleRetry
+      else if (h.ability === 'grapple' || AIMED.includes(h.ability)) h.abilityCd = ABILITY.botGrappleRetry
     }
   }
 
@@ -128,11 +128,11 @@ export class Race {
     const id = this.slots[i]
     if (!id || this.phase !== 'racing' || this.player.finished) return false
     if ((this.cooldowns[i] ?? 0) > 0) return false
-    if (id === 'papaya') {
+    if (AIMED.includes(id)) {
       // First press: aim. Press again to cancel. The throw happens on the next tap/click on the track.
       if (this.aiming === i) { this.aiming = -1; this.toast('Throw cancelled', 0.9); return false }
       this.aiming = i
-      this.toast('🥭 Tap the track to throw!', 1.6)
+      this.toast(id === 'nade' ? '🌩️ Tap the track to throw!' : '🥭 Tap the track to throw!', 1.6)
       return false
     }
     if (!this.abilities.use(id)) { this.flushNotices(); return false }
@@ -145,9 +145,11 @@ export class Race {
   throwAt(at: { x: number; y: number }): boolean {
     const i = this.aiming
     if (i < 0 || this.phase !== 'racing' || this.player.finished) { this.aiming = -1; return false }
-    if (!this.abilities.use('papaya', this.player, false, at)) { this.toast("Can't throw right now!", 1); return false }
+    const id = this.slots[i]
+    if (!id || !AIMED.includes(id)) { this.aiming = -1; return false }
+    if (!this.abilities.use(id, this.player, false, at)) { this.toast("Can't throw right now!", 1); return false }
     this.aiming = -1
-    this.cooldowns[i] = ABILITY.cooldown.papaya
+    this.cooldowns[i] = ABILITY.cooldown[id]
     this.flushNotices()
     return true
   }
@@ -227,12 +229,18 @@ export class Race {
     this.flushNotices()
     for (const it of this.abilities.items) {
       if (it.kind === 'fireball' && Math.random() < dt * 60) this.fx.boostTrail(it.pos.x, it.pos.y, Math.random() < 0.5 ? '#ff7a1a' : '#ffd23f')
-      if (it.kind === 'roomba' && Math.random() < dt * 10) this.fx.dust(it.pos.x, it.pos.y, 1)
+      if (it.kind === 'robot' && !it.hits && Math.random() < dt * 14) this.fx.dust(it.pos.x - Math.cos(it.heading) * 18, it.pos.y - Math.sin(it.heading) * 18, 1)
       if (it.kind === 'hay' && Math.random() < dt * 12 && it.pts.length) { const q = it.pts[(Math.random() * it.pts.length) | 0]; this.fx.boostTrail(q.x, q.y, '#e8c860') }
     }
 
     // Dust from galloping hooves; sparks trail a boosting horse.
     for (const h of this.horses) {
+      if (h.state === 'normal' && h.rocketTimer > 0 && Math.random() < dt * 70) {
+        // Rocket Hooves: fire and smoke out the back.
+        const back = fromAngle(h.heading, -30 - Math.random() * 10)
+        const side = fromAngle(h.heading + Math.PI / 2, (Math.random() - 0.5) * 16)
+        this.fx.boostTrail(h.pos.x + back.x + side.x, h.pos.y + back.y + side.y, Math.random() < 0.3 ? '#9a9a9a' : Math.random() < 0.5 ? '#ff7a1a' : '#ffd23f')
+      }
       if (h.state === 'normal' && h.boostTimer > 0 && Math.random() < dt * 40) {
         const back = fromAngle(h.heading, -24)
         this.fx.boostTrail(h.pos.x + back.x, h.pos.y + back.y, h.colors.silk)

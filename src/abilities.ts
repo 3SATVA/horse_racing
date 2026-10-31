@@ -1,21 +1,24 @@
-import { ABILITY, COINS, SLOTS } from './config'
+import { ABILITY, COINS, HORSE, SLOTS } from './config'
 import { canBeHit, type Horse } from './horse'
-import { dot, fromAngle, rand, type Vec } from './math'
+import { clamp, dot, fromAngle, rand, type Vec } from './math'
 import { blast, type PhysEvent } from './physics'
 import { locate, sample, type Track } from './track'
 
-export type AbilityId = 'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya'
+/** 'roomba' is the Robot Horse (kept the old id so roomba owners keep it). */
+export type AbilityId = 'grapple' | 'ball' | 'roomba' | 'banana' | 'fireball' | 'emp' | 'hay' | 'papaya' | 'rocket' | 'nade'
 
 export interface AbilityDef { id: AbilityId; name: string; icon: string; price: number; desc: string }
 
 export const ABILITIES: AbilityDef[] = [
   { id: 'grapple', name: 'Grappling Hook', icon: '🪝', price: 140, desc: 'Hooks the nearest rival within range and reels them in. Only if they reach you do they get a mini explosion: a short stun and no catch-up boost.' },
   { id: 'ball', name: 'Spiked Soccer Ball', icon: '⚽', price: 90, desc: 'Bounces down the track faster than any horse. Rivals it hits get knocked backwards.' },
-  { id: 'roomba', name: 'Dangerous Roomba', icon: '🔪', price: 180, desc: 'A roomba with a knife. Sweeps the track for 6s. Horses pass right through it, and any rival it touches explodes.' },
+  { id: 'roomba', name: 'Robot Horse', icon: '🤖', price: 180, desc: `A metal horse a little faster than any real one. It follows the track and hunts the nearest rival for up to ${ABILITY.robotSeconds}s. When it catches them, they explode.` },
   { id: 'banana', name: 'Banana Peel of Doom', icon: '🍌', price: 60, desc: 'Drop it behind you. Whoever steps on it spins out of control: they can only pick their speed.' },
   { id: 'fireball', name: 'Fireball', icon: '🔥', price: 120, desc: 'A fireball that bounces around the track for 4.6s, burning through horses. Rivals it touches crawl at 35% speed for 3.5s.' },
   { id: 'emp', name: 'EMP', icon: '⚡', price: 130, desc: 'An electric pulse around you. Every rival inside the ring is stunned for 0.75s, then runs at 0.75x speed for 3s.' },
   { id: 'hay', name: 'Orbiting Hay', icon: '🌾', price: 110, desc: '3 sharp hay bundles orbit you for 8s. Each one that touches a rival slows it to 0.75x for 3s, and hits stack. Get hit by all 3 and you explode (a short stun, no catch-up boost).' },
+  { id: 'rocket', name: 'Rocket Hooves', icon: '🚀', price: 100, desc: `Rockets on your hooves: a ${ABILITY.rocketSeconds}s speed boost as strong as the catch-up boost (+${Math.round((HORSE.boostSpeedMul - 1) * 100)}% top speed).` },
+  { id: 'nade', name: 'Electricity-nade', icon: '🌩️', price: 170, desc: `Tap the track to throw it. It lands in ${ABILITY.nadeFlight}s and stuns rivals near it, and the shock jumps between horses that are close together. Stunned ${ABILITY.nadeStunSeconds}s, then ${ABILITY.nadeSlowMul}x speed for ${ABILITY.nadeSlowSeconds}s.` },
   { id: 'papaya', name: 'Papaya-Bomb', icon: '🥭', price: 200, desc: 'Tap the track to throw it. It lands 1s later and explodes in a big radius: rivals there get a short stun and no catch-up boost.' },
 ]
 export const abilityDef = (id: AbilityId) => ABILITIES.find((a) => a.id === id)!
@@ -24,7 +27,9 @@ export const abilityDef = (id: AbilityId) => ABILITIES.find((a) => a.id === id)!
 
 export interface Save { coins: number; owned: Record<AbilityId, boolean>; equipped: (AbilityId | null)[] }
 const KEY = 'derby.save'
-const IDS: AbilityId[] = ['grapple', 'ball', 'roomba', 'banana', 'fireball', 'emp', 'hay', 'papaya']
+const IDS: AbilityId[] = ['grapple', 'ball', 'roomba', 'banana', 'fireball', 'emp', 'hay', 'papaya', 'rocket', 'nade']
+/** Abilities that are aimed: press, then tap/click the track. */
+export const AIMED: AbilityId[] = ['papaya', 'nade']
 
 export function loadSave(): Save {
   let s: Partial<Save> & { inv?: Partial<Record<AbilityId, number>> } = {}
@@ -68,7 +73,10 @@ export function raceReward(place: number, kills: number) {
 export type Item = { owner: number } & (
   | { kind: 'ball'; pos: Vec; vel: Vec; t: number; life: number; r: number; spin: number; hitCd: Map<number, number>; hits: number }
   | { kind: 'fireball'; pos: Vec; vel: Vec; t: number; life: number; r: number; hitCd: Map<number, number>; hits: number }
-  | { kind: 'roomba'; pos: Vec; heading: number; s: number; idx: number; t: number; life: number; r: number; phase: number; hits: number; dir: number }
+  /** Robot Horse: runs in track coordinates (s along, lat across) so it never leaves the track. `target` = horse id or -1. */
+  | { kind: 'robot'; pos: Vec; heading: number; s: number; lat: number; t: number; life: number; r: number; speed: number; target: number; hits: number; gait: number }
+  /** Electricity-nade: flies, lands, then shows the lightning `links` (from = horse id, or -1 for the landing spot). */
+  | { kind: 'nade'; from: Vec; to: Vec; pos: Vec; z: number; t: number; life: number; r: number; done: boolean; hits: number; links: { from: number; to: number; depth: number }[] }
   | { kind: 'banana'; pos: Vec; t: number; life: number; r: number; heading: number }
   | { kind: 'hook'; target: number; t: number; life: number; done: boolean; /** 'hit' = reached you and exploded, 'broken' = pull interrupted. */ result: '' | 'hit' | 'broken' }
   | { kind: 'emp'; pos: Vec; t: number; life: number; r: number; hits: number }
@@ -116,10 +124,10 @@ export class AbilitySystem {
   }
 
   /** Snap a world point onto the racing surface and within throwing range of `o`. */
-  clampThrow(o: Horse, to: Vec): Vec {
+  clampThrow(o: Horse, to: Vec, range: number = ABILITY.papayaRange): Vec {
     let x = to.x, y = to.y
     const dx = x - o.pos.x, dy = y - o.pos.y, d = Math.hypot(dx, dy)
-    if (d > ABILITY.papayaRange) { x = o.pos.x + dx / d * ABILITY.papayaRange; y = o.pos.y + dy / d * ABILITY.papayaRange }
+    if (d > range) { x = o.pos.x + dx / d * range; y = o.pos.y + dy / d * range }
     const loc = locate(this.tr, { x, y })
     const lim = this.tr.halfWidth - 12
     if (Math.abs(loc.lat) > lim) { const l = Math.sign(loc.lat) * lim; x = loc.p.x + loc.nrm.x * l; y = loc.p.y + loc.nrm.y * l }
@@ -139,6 +147,42 @@ export class AbilitySystem {
       if (d < bd) { bd = d; best = tgt }
     }
     return best
+  }
+
+  /** Electricity-nade chain from `at`: every hittable rival of `ownerId` near the blast, then anyone close to a zapped horse, repeating. */
+  nadeChain(ownerId: number, at: Vec): { from: number; to: number; depth: number }[] {
+    const pool = this.rivalsOf(ownerId).filter((h) => canBeHit(h))
+    const got = new Set<number>()
+    const links: { from: number; to: number; depth: number }[] = []
+    const queue: { h: Horse; depth: number }[] = []
+    for (const h of pool) {
+      if (Math.hypot(h.pos.x - at.x, h.pos.y - at.y) > ABILITY.nadeRadius) continue
+      got.add(h.id); links.push({ from: -1, to: h.id, depth: 0 }); queue.push({ h, depth: 0 })
+    }
+    while (queue.length) {
+      const c = queue.shift()!
+      for (const h of pool) {
+        if (got.has(h.id) || Math.hypot(h.pos.x - c.h.pos.x, h.pos.y - c.h.pos.y) > ABILITY.nadeChain) continue
+        got.add(h.id); links.push({ from: c.h.id, to: h.id, depth: c.depth + 1 }); queue.push({ h, depth: c.depth + 1 })
+      }
+    }
+    return links
+  }
+
+  /** Bots: the Electricity-nade landing spot (a rival ahead, or the player) that would zap the most horses. Null if none. */
+  nadeTarget(o: Horse): Vec | null {
+    let best: Vec | null = null, bn = 0, bd = Infinity
+    for (const h of this.rivalsOf(o.id)) {
+      if (!canBeHit(h) || !(h.isPlayer || h.progress > o.progress)) continue
+      const guess = { x: h.pos.x + h.vel.x * ABILITY.nadeFlight, y: h.pos.y + h.vel.y * ABILITY.nadeFlight }
+      const d = Math.hypot(guess.x - o.pos.x, guess.y - o.pos.y)
+      if (d > ABILITY.nadeRange) continue
+      const tgt = this.clampThrow(o, guess, ABILITY.nadeRange)
+      // Score on where everyone will be when it lands.
+      const n = this.nadeChain(o.id, { x: tgt.x - h.vel.x * ABILITY.nadeFlight, y: tgt.y - h.vel.y * ABILITY.nadeFlight }).length
+      if (n > bn || (n === bn && d < bd)) { bn = n; bd = d; best = tgt }
+    }
+    return bn > 0 ? best : null
   }
 
   /** Spawn ability `id` for horse `owner` (the player by default). False if it can't fire right now. */
@@ -176,10 +220,24 @@ export class AbilitySystem {
         break
       }
       case 'roomba': {
+        // Robot Horse: starts just ahead of you and hunts the nearest rival.
         const s = loc.s + 50 * fwdOnTrack
         const at = sample(tr, s)
-        this.items.push({ owner: p.id, kind: 'roomba', pos: { ...at.p }, heading: dirA, s, idx: at.i, t: 0, life: ABILITY.roombaSeconds, r: ABILITY.roombaRadius, phase: Math.asin(Math.max(-1, Math.min(1, loc.lat / (tr.halfWidth * 0.6)))) || 0, hits: 0, dir: fwdOnTrack })
-        this.say(me ? '🔪 Dangerous roomba deployed!' : '', me, 'whoosh')
+        const lat = clamp(loc.lat, -(tr.halfWidth - ABILITY.robotRadius), tr.halfWidth - ABILITY.robotRadius)
+        this.items.push({ owner: p.id, kind: 'robot', pos: { x: at.p.x + at.nrm.x * lat, y: at.p.y + at.nrm.y * lat }, heading: dirA, s, lat, t: 0, life: ABILITY.robotSeconds, r: ABILITY.robotRadius, speed: ABILITY.robotSpeed(), target: -1, hits: 0, gait: 0 })
+        this.say(me ? '🤖 Robot Horse unleashed!' : '', me, 'whoosh')
+        break
+      }
+      case 'rocket': {
+        p.rocketTimer = ABILITY.rocketSeconds
+        this.say(me ? '🚀 Rocket Hooves!' : '', me, 'whoosh')
+        break
+      }
+      case 'nade': {
+        const to = aim ? this.clampThrow(p, aim, ABILITY.nadeRange) : this.nadeTarget(p)
+        if (!to) return false
+        this.items.push({ owner: p.id, kind: 'nade', from: { ...p.pos }, to, pos: { ...p.pos }, z: 0, t: 0, life: ABILITY.nadeFlight + 0.7, r: ABILITY.nadeRadius, done: false, hits: 0, links: [] })
+        this.say(me ? '🌩️ Electricity-nade away!' : '', me, 'whoosh')
         break
       }
       case 'emp': {
@@ -304,23 +362,68 @@ export class AbilitySystem {
           }
           break
         }
-        case 'roomba': {
-          const dir = it.dir
-          it.s += dir * ABILITY.roombaSpeed * dt
-          const at = sample(this.tr, it.s)
-          const lat = Math.sin(it.phase + it.t * 2.2) * this.tr.halfWidth * 0.6
-          const nx = at.p.x + at.nrm.x * lat, ny = at.p.y + at.nrm.y * lat
-          it.heading = Math.atan2(ny - it.pos.y, nx - it.pos.x)
-          it.pos = { x: nx, y: ny }
-          it.idx = at.i
-          // No collisions: horses drive right through it, but rivals that touch it explode.
+        case 'robot': {
+          if (it.hits) break
+          const tr = this.tr, L = tr.length, W = tr.halfWidth - it.r
+          const wrap = (d: number) => ((((d + L / 2) % L) + L) % L) - L / 2
+          // Home in on the nearest hittable rival, measured in track coordinates (so it never cuts across the infield).
+          let tgt: Horse | null = null, gs = 0, gl = 0, bd = Infinity
+          for (const h of this.rivalsOf(it.owner)) {
+            if (!canBeHit(h)) continue
+            const hl = locate(tr, h.pos, h.trackIdx)
+            const ds = wrap(hl.s - it.s), dl = hl.lat - it.lat
+            const d = Math.hypot(ds, dl)
+            if (d < bd) { bd = d; tgt = h; gs = ds; gl = dl }
+          }
+          it.target = tgt ? tgt.id : -1
+          if (!tgt) { gs = 1; gl = -it.lat * 0.02 } // nobody to chase: trot on down the track
+          const step = it.speed * dt
+          const gd = Math.hypot(gs, gl) || 1
+          let ds = gs / gd * step, dl = gl / gd * step
+          if (tgt && gd <= step) { ds = gs; dl = gl }
+          // Track coordinates stretch on bends: rescale so the real distance covered is `step`.
+          const place = (s: number, lat: number) => { const at = sample(tr, s); return { x: at.p.x + at.nrm.x * lat, y: at.p.y + at.nrm.y * lat } }
+          const trial = place(it.s + ds, clamp(it.lat + dl, -W, W))
+          const moved = Math.hypot(trial.x - it.pos.x, trial.y - it.pos.y)
+          if (moved > 1e-6 && !(tgt && gd <= step)) { const k = step / moved; ds *= k; dl *= k }
+          it.s = ((it.s + ds) % L + L) % L
+          it.lat = clamp(it.lat + dl, -W, W)
+          const np = place(it.s, it.lat)
+          if (Math.hypot(np.x - it.pos.x, np.y - it.pos.y) > 0.01) it.heading = Math.atan2(np.y - it.pos.y, np.x - it.pos.x)
+          it.gait += dt * 14
+          it.pos = np
+          // Horses run right through it, but the first rival it touches explodes (normal explosion,
+          // they get the catch-up boost) and the robot is used up.
           for (const h of this.rivalsOf(it.owner)) {
             if (!canBeHit(h)) continue
             if (Math.hypot(h.pos.x - it.pos.x, h.pos.y - it.pos.y) > it.r + 17) continue
             ev.push(...blast(h, it.pos, this.tr))
             p.kills++
             it.hits++
-            this.say(p.isPlayer ? `🔪 The roomba got ${h.name}!` : h.isPlayer ? `🔪 ${p.name}'s roomba got you!` : '', p.isPlayer || h.isPlayer)
+            it.t = it.life
+            this.say(p.isPlayer ? `🤖 Your Robot Horse got ${h.name}!` : h.isPlayer ? `🤖 ${p.name}'s Robot Horse got you!` : '', p.isPlayer || h.isPlayer)
+            break
+          }
+          break
+        }
+        case 'nade': {
+          const f = Math.min(1, it.t / ABILITY.nadeFlight)
+          it.pos = { x: it.from.x + (it.to.x - it.from.x) * f, y: it.from.y + (it.to.y - it.from.y) * f }
+          it.z = Math.sin(f * Math.PI) * 45
+          if (f >= 1 && !it.done) {
+            it.done = true
+            it.links = this.nadeChain(it.owner, it.to)
+            let hitMe = false
+            for (const l of it.links) {
+              const h = this.horses[l.to]
+              h.state = 'stunned'; h.stunTimer = ABILITY.nadeStunSeconds; h.noBoost = true
+              h.vel = { x: 0, y: 0 }; h.fwdSpeed = 0; h.reverseTimer = 0; h.boostTimer = 0; h.rocketTimer = 0
+              h.nadeSlowTimer = ABILITY.nadeSlowSeconds; h.zapTimer = ABILITY.nadeStunSeconds + 0.2
+              if (h.isPlayer) hitMe = true
+            }
+            it.hits = it.links.length
+            const chained = it.links.filter((l) => l.from >= 0).length
+            this.say(p.isPlayer ? (it.hits ? `🌩️ ZAP! Stunned ${it.hits} rival${it.hits > 1 ? 's' : ''}${chained ? ` (${chained} by chain)` : ''}!` : '🌩️ Fizzle! Missed.') : hitMe ? `🌩️ ${p.name}'s Electricity-nade zapped you!` : '', p.isPlayer || hitMe, 'zap')
           }
           break
         }

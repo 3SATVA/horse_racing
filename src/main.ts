@@ -4,7 +4,7 @@ import { ABILITY, HORSE, RACE, TRACK } from './config'
 import { NEWS, STEPS, TUTORIAL_KEY, TUTORIAL_VERSION, Tutorial, initSeen, markSeen, newsFor, seenVersion, type NewsItem, type TutCtx } from './tutorial'
 import { Effects } from './effects'
 import { Input } from './input'
-import { slowMul } from './horse'
+import { boostMul, slowMul } from './horse'
 import { Pen } from './pen'
 import { fromAngle, wrapAngle } from './math'
 import { Race } from './race'
@@ -324,7 +324,9 @@ function frame(now: number) {
   tutFrame(dt)
   const r = race ?? menuRace
   const aiming = screen === 'race' && !!race && race.aiming >= 0
-  const aim = aiming ? { range: ABILITY.papayaRange, radius: ABILITY.papayaRadius, at: input.hover ? r.abilities.clampThrow(r.player, renderer.toWorld(input.hover.x, input.hover.y)) : null } : null
+  const nadeAim = aiming && race!.slots[race!.aiming] === 'nade'
+  const range = nadeAim ? ABILITY.nadeRange : ABILITY.papayaRange
+  const aim = aiming ? { range, radius: nadeAim ? ABILITY.nadeRadius : ABILITY.papayaRadius, electric: nadeAim, at: input.hover ? r.abilities.clampThrow(r.player, renderer.toWorld(input.hover.x, input.hover.y), range) : null } : null
   renderer.draw({ aim, track: r.track, horses: r.horses, player: r.player, fx, drag: input.drag, maxDrag: input.maxDrag, time: now / 1000, showArrow: screen === 'race', items: r.abilities.items })
   requestAnimationFrame(frame)
 }
@@ -354,7 +356,7 @@ window.__horse = {
       drag: { ...input.drag }, maxDrag: input.maxDrag,
       slots: r?.slots, cooldowns: r ? [...r.cooldowns] : null, aiming: r ? r.aiming : -1, grappleRange: ABILITY.grappleRange, aimMode: input.aimMode,
       cam: { ...renderer.cam }, view: { w: window.innerWidth, h: window.innerHeight },
-      items: r?.abilities.items.map((it) => ({ kind: it.kind, owner: it.owner, t: it.t, ...('pos' in it ? { x: it.pos.x, y: it.pos.y } : {}), ...(it.kind === 'hook' ? { target: it.target, done: it.done, result: it.result } : {}), ...('to' in it ? { tx: it.to.x, ty: it.to.y, done: it.done } : {}), ...('pts' in it ? { pts: it.pts.map((q) => [q.x, q.y]) } : {}), ...('hits' in it ? { hits: it.hits } : {}), ...('vel' in it ? { vx: it.vel.x, vy: it.vel.y } : {}) })),
+      items: r?.abilities.items.map((it) => ({ kind: it.kind, owner: it.owner, t: it.t, ...('pos' in it ? { x: it.pos.x, y: it.pos.y } : {}), ...(it.kind === 'hook' ? { target: it.target, done: it.done, result: it.result } : {}), ...('to' in it ? { tx: it.to.x, ty: it.to.y, done: it.done } : {}), ...('pts' in it ? { pts: it.pts.map((q) => [q.x, q.y]) } : {}), ...('hits' in it ? { hits: it.hits } : {}), ...('vel' in it ? { vx: it.vel.x, vy: it.vel.y } : {}), ...(it.kind === 'robot' ? { s: it.s, lat: it.lat, speed: it.speed, target: it.target, life: it.life } : {}), ...(it.kind === 'banana' ? { r: it.r } : {}), ...(it.kind === 'nade' ? { links: it.links.map((l) => ({ ...l })), life: it.life } : {}) })),
       used: r ? { ...r.abilities.used } : null,
       pen: pen.debug(),
       tutorial: tut ? { step: tut.step?.id ?? null, index: tut.i, count: tut.steps.length, ids: tut.steps.map((x) => x.id), next: !tutNext.hidden } : null,
@@ -367,7 +369,7 @@ window.__horse = {
         speed: h.fwdSpeed, state: h.state, stun: h.stunTimer, lap: h.lap, progress: h.progress,
         finished: h.finished, place: r.placeOf(h), mode: h.ctrl.mode,
         top: h.topSpeed, topTarget: h.topTarget, boost: h.boostTimer, bounces: h.bounces, z: h.z,
-        dummy: h.dummy, exploded: h.timesExploded, kills: h.kills, spinOut: h.spinOutTimer, slow: h.slowTimer, empSlow: h.empSlowTimer, hay: [...h.haySlow], zap: h.zapTimer, knock: h.knockTimer, noBoost: h.noBoost, ability: h.ability, abilityCd: h.abilityCd, abilityFirstAt: h.abilityFirstAt, label: h.label ? h.label.text : null, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
+        dummy: h.dummy, exploded: h.timesExploded, kills: h.kills, spinOut: h.spinOutTimer, slow: h.slowTimer, empSlow: h.empSlowTimer, nadeSlow: h.nadeSlowTimer, rocket: h.rocketTimer, hay: [...h.haySlow], zap: h.zapTimer, knock: h.knockTimer, noBoost: h.noBoost, ability: h.ability, abilityCd: h.abilityCd, abilityFirstAt: h.abilityFirstAt, label: h.label ? h.label.text : null, hunting: h.ai.hunting, hunts: h.ai.huntsStarted, recover: h.recoverTimer,
       })),
     }
   },
@@ -392,7 +394,11 @@ window.__horse = {
     lineOnTrack: (a: number, b: number) => !!race && race.abilities.lineOnTrack(race.horses[a], race.horses[b]),
     /** Bot `id`: is there a papaya target? */
     papayaTarget: (id: number) => (race ? race.abilities.papayaTarget(race.horses[id]) : null),
+    /** Bot `id`: where would it throw an Electricity-nade (null = no target)? */
+    nadeTarget: (id: number) => (race ? race.abilities.nadeTarget(race.horses[id]) : null),
     speedMul: (id: number) => (race ? slowMul(race.horses[id]) : 1),
+    /** Speed-up multiplier on horse `id` (catch-up boost / Rocket Hooves), 1 = none. */
+    boostMul: (id: number) => (race ? boostMul(race.horses[id]) : 1),
     canHook: (id: number) => !!race && !!race.abilities.grappleTarget(race.horses[id]),
     /** Switch bot abilities on/off for the whole race. */
     botAbilitiesOn: (on: boolean) => { if (race) race.botAbilities = on },
@@ -400,6 +406,8 @@ window.__horse = {
     useAbility: (slot = 0) => (race ? race.useSlot(slot) : false),
     /** Force horse `id` to use ability `ab` right now (bots included). */
     botUse: (id: number, ab: AbilityId) => !!race && race.abilities.use(ab, race.horses[id], true),
+    /** Electricity-nade chain links if horse `owner`'s nade landed at (x, y) right now. */
+    nadeChainAt: (owner: number, x: number, y: number) => (race ? race.abilities.nadeChain(owner, { x, y }) : null),
     abilityIds: () => ABILITIES.map((a) => a.id),
     penClick: (i: number) => { const p = pen.debug().horses[i]; return p ? pen.click(p.x, p.y) : -1 },
     penSpawn: (n: number) => pen.spawn(n),
@@ -407,7 +415,7 @@ window.__horse = {
     placeAt: (id: number, x: number, y: number, heading: number | null = null, speed = 0) => {
       if (!race) return
       const h = race.horses[id]
-      h.state = 'normal'; h.z = 0; h.recoverTimer = 0; h.boostTimer = 0; h.knockTimer = 0; h.spinOutTimer = 0; h.slowTimer = 0; h.empSlowTimer = 0; h.haySlow = [0, 0, 0]
+      h.state = 'normal'; h.z = 0; h.recoverTimer = 0; h.boostTimer = 0; h.knockTimer = 0; h.spinOutTimer = 0; h.slowTimer = 0; h.empSlowTimer = 0; h.nadeSlowTimer = 0; h.rocketTimer = 0; h.haySlow = [0, 0, 0]
       h.pos = { x, y }
       const L = race.track.length
       const loc = locate(race.track, h.pos)
